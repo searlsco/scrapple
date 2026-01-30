@@ -34,9 +34,11 @@ program
   .description('Search the documentation index')
   .option('-t, --type <type>', 'Filter by type (doc, talk, sample, code_file)')
   .option('-l, --limit <n>', 'Maximum results', '20')
+  .option('--human', 'Human-readable output with formatting')
   .action(async (query, options) => {
     ensureDirectories()
-    await search(query, options, program.opts())
+    const globalOpts = program.opts()
+    await search(query, options, { human: options.human || globalOpts.human })
     closeDb()
   })
 

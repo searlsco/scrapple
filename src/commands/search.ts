@@ -1,5 +1,49 @@
 import { getDb } from '../db.js'
 
+/**
+ * Build an FTS5 query that's more forgiving:
+ * - Splits query into words
+ * - Adds prefix matching (word*) for partial matches
+ * - Uses OR between terms so any match works
+ * - Preserves quoted phrases
+ */
+function buildFtsQuery(query: string): string {
+  // Handle quoted phrases - keep them intact
+  const phrases: string[] = []
+  const withoutPhrases = query.replace(/"([^"]+)"/g, (_, phrase) => {
+    phrases.push(`"${phrase}"`)
+    return ''
+  })
+
+  // Split remaining into words and add prefix matching
+  const words = withoutPhrases
+    .split(/\s+/)
+    .map(w => w.trim().toLowerCase())
+    .filter(w => w.length > 0)
+    .map(w => {
+      // Don't add * to words that already have operators
+      if (w.includes('*') || w.includes('"') || w.startsWith('-')) {
+        return w
+      }
+      // Add prefix matching for words 3+ chars
+      return w.length >= 3 ? `${w}*` : w
+    })
+
+  // Combine phrases and words with OR
+  const allTerms = [...phrases, ...words]
+
+  if (allTerms.length === 0) {
+    return query // Fallback to original
+  }
+
+  if (allTerms.length === 1) {
+    return allTerms[0]
+  }
+
+  // Use OR between all terms for broader matching
+  return allTerms.join(' OR ')
+}
+
 interface SearchOptions {
   type?: string
   limit: string
@@ -26,6 +70,11 @@ export async function search(
   const db = getDb()
   const limit = parseInt(options.limit, 10) || 20
 
+  // Transform query to be more forgiving:
+  // - Add prefix matching (word*) for partial matches
+  // - Use OR between terms so any term matches
+  const ftsQuery = buildFtsQuery(query)
+
   let sql = `
     SELECT
       c.id,
@@ -39,7 +88,7 @@ export async function search(
     WHERE content_fts MATCH ?
   `
 
-  const params: (string | number)[] = [query]
+  const params: (string | number)[] = [ftsQuery]
 
   if (options.type) {
     sql += ` AND c.type = ?`
