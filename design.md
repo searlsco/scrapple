@@ -14,7 +14,7 @@ A local Apple Developer Documentation scraper and search tool for accessibility.
 - **Language**: TypeScript (Node.js)
 - **Browser automation**: Playwright (anticipated for many pages)
 - **Database**: SQLite (manifest + FTS5 index)
-- **CLI framework**: TBD (likely Commander or oclif)
+- **CLI framework**: Commander
 
 ### Directory Structure
 
@@ -69,7 +69,7 @@ A local Apple Developer Documentation scraper and search tool for accessibility.
 ### CLI Output
 
 - **Default**: Agent-friendly (structured, pipeable)
-- **`--human` / `-h`**: Human-readable with formatting, colors, snippets
+- **`--human`**: Human-readable with formatting, colors, snippets (note: `-h` conflicts with `--help`)
 
 ### Version Handling
 
