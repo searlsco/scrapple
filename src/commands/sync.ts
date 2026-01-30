@@ -9,14 +9,41 @@ interface SyncOptions {
   fetchOnly?: boolean
   normalizeOnly?: boolean
   indexOnly?: boolean
+  refreshAll?: boolean
 }
 
 interface GlobalOptions {
   human?: boolean
 }
 
+// 12 months in milliseconds
+const REFRESH_AGE_MS = 365 * 24 * 60 * 60 * 1000
+
 export async function sync(options: SyncOptions, global: GlobalOptions): Promise<void> {
   const db = getDb()
+
+  // Handle refresh: reset stale or all items back to 'discovered'
+  if (options.refreshAll) {
+    const result = db.prepare(`
+      UPDATE manifest
+      SET status = 'discovered'
+      WHERE status != 'discovered'
+    `).run()
+    if (global.human) console.log(`Refreshing all: reset ${result.changes} resources to discovered`)
+  } else {
+    // Auto-refresh items older than 12 months
+    const cutoff = Date.now() - REFRESH_AGE_MS
+    const result = db.prepare(`
+      UPDATE manifest
+      SET status = 'discovered'
+      WHERE status != 'discovered'
+        AND fetched_at IS NOT NULL
+        AND fetched_at < ?
+    `).run(cutoff)
+    if (result.changes > 0 && global.human) {
+      console.log(`Auto-refreshing: reset ${result.changes} resources older than 12 months`)
+    }
+  }
 
   if (!options.fetchOnly && !options.normalizeOnly && !options.indexOnly) {
     if (global.human) console.log('Discovering resources...')

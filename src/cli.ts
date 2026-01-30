@@ -7,6 +7,7 @@ import { search } from './commands/search.js'
 import { show } from './commands/show.js'
 import { open } from './commands/open.js'
 import { status } from './commands/status.js'
+import { reset } from './commands/reset.js'
 
 const program = new Command()
 
@@ -23,6 +24,7 @@ program
   .option('--fetch-only', 'Only fetch discovered resources')
   .option('--normalize-only', 'Only normalize fetched resources')
   .option('--index-only', 'Only index normalized content')
+  .option('--refresh-all', 'Re-fetch and re-process all resources')
   .action(async (options) => {
     ensureDirectories()
     await sync(options, program.opts())
@@ -69,6 +71,14 @@ program
     ensureDirectories()
     await status(program.opts())
     closeDb()
+  })
+
+program
+  .command('reset')
+  .description('Delete all scraped data and start fresh')
+  .option('--confirm', 'Skip confirmation prompt')
+  .action(async (options) => {
+    await reset(options, program.opts())
   })
 
 program.parse()
