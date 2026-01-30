@@ -82,9 +82,13 @@ function extractRefsFromJson(data: unknown, refs: DocRef[]): void {
 
   const obj = data as Record<string, unknown>
 
-  // Look for references array
-  if (Array.isArray(obj.references)) {
-    for (const ref of obj.references) {
+  // Look for references (can be array or object)
+  if (obj.references && typeof obj.references === 'object') {
+    const refValues = Array.isArray(obj.references)
+      ? obj.references
+      : Object.values(obj.references)
+
+    for (const ref of refValues) {
       if (
         ref &&
         typeof ref === 'object' &&
