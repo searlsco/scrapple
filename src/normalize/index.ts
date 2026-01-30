@@ -93,24 +93,56 @@ function normalizeDoc(resource: ManifestRow, rawContent: string): string | null 
 }
 
 function normalizeTalk(resource: ManifestRow, rawContent: string): string | null {
-  // Extract transcript from WWDC video page
-  const transcript = extractTranscript(rawContent)
-  const title = resource.title || 'Untitled Session'
-
-  let md = `# ${title}\n\n`
-  md += `URL: ${resource.url}\n\n`
-
-  if (transcript) {
-    md += `## Transcript\n\n${transcript}\n`
-  } else {
-    // Fallback: extract any readable content
-    const text = extractTextFromHtml(rawContent)
-    if (text) {
-      md += `## Content\n\n${text}\n`
+  // Try to parse as JSON (new Playwright format)
+  try {
+    const data = JSON.parse(rawContent) as {
+      title?: string
+      transcript?: string
+      description?: string
+      resources?: string[]
     }
-  }
 
-  return md
+    const title = data.title || resource.title || 'Untitled Session'
+    const parts: string[] = []
+
+    parts.push(`# ${title}`)
+    parts.push(`\nURL: ${resource.url}\n`)
+
+    if (data.description) {
+      parts.push(`## Description\n\n${data.description}\n`)
+    }
+
+    if (data.transcript) {
+      parts.push(`## Transcript\n\n${data.transcript}\n`)
+    }
+
+    if (data.resources && data.resources.length > 0) {
+      parts.push(`## Resources\n`)
+      for (const r of data.resources) {
+        parts.push(`- ${r}`)
+      }
+    }
+
+    return parts.join('\n')
+  } catch {
+    // Fallback for old HTML format
+    const transcript = extractTranscript(rawContent)
+    const title = resource.title || 'Untitled Session'
+
+    let md = `# ${title}\n\n`
+    md += `URL: ${resource.url}\n\n`
+
+    if (transcript) {
+      md += `## Transcript\n\n${transcript}\n`
+    } else {
+      const text = extractTextFromHtml(rawContent)
+      if (text) {
+        md += `## Content\n\n${text}\n`
+      }
+    }
+
+    return md
+  }
 }
 
 function normalizeSample(resource: ManifestRow, rawContent: string): string | null {
@@ -417,7 +449,7 @@ function getRawPath(type: ResourceType, id: string): string {
     case 'doc':
       return join(paths.data.raw.docs, `${id}.json`)
     case 'talk':
-      return join(paths.data.raw.videos, `${id}.html`)
+      return join(paths.data.raw.videos, `${id}.json`)
     case 'sample':
       return join(paths.data.raw.samples, `${id}.zip`)
     case 'code_file':

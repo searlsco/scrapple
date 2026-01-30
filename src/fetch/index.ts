@@ -1,9 +1,11 @@
 import Database from 'better-sqlite3'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fetchWithCache, urlToId } from '../http.js'
+import { createHash } from 'node:crypto'
+import { fetchWithCache } from '../http.js'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
+import { fetchWWDCBatch, closeBrowser } from './playwright.js'
 
 interface GlobalOptions {
   human?: boolean
@@ -49,18 +51,69 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
   let failed = 0
   let skipped = 0
 
-  for (const resource of toFetch) {
+  // Separate talks from other resources for batch processing
+  const talks = toFetch.filter(r => r.type === 'talk')
+  const others = toFetch.filter(r => r.type !== 'talk')
+
+  // Batch fetch talks with Playwright (concurrent)
+  if (talks.length > 0) {
+    log(`  Fetching ${talks.length} WWDC sessions with Playwright (5 concurrent)...`)
+
+    const urlToResource = new Map(talks.map(r => [r.url, r]))
+    const urls = talks.map(r => r.url)
+
+    const results = await fetchWWDCBatch(urls, (completed, batchTotal) => {
+      if (completed % 25 === 0 || completed === batchTotal) {
+        log(`    Playwright progress: ${completed}/${batchTotal}`)
+      }
+    })
+
+    for (const [url, content] of results) {
+      const resource = urlToResource.get(url)!
+
+      if (content) {
+        const data = JSON.stringify(content, null, 2)
+        const contentHash = createHash('sha256').update(data).digest('hex')
+        const rawPath = getRawPath(resource.type, resource.id)
+        mkdirSync(dirname(rawPath), { recursive: true })
+        writeFileSync(rawPath, data)
+
+        updateManifest.run(
+          'fetched',
+          null,
+          null,
+          Date.now(),
+          contentHash,
+          content.title || resource.title,
+          resource.id
+        )
+        fetched++
+      } else {
+        updateManifest.run(
+          'failed',
+          null,
+          null,
+          Date.now(),
+          null,
+          resource.title,
+          resource.id
+        )
+        failed++
+      }
+    }
+  }
+
+  // Fetch other resources one by one
+  for (const resource of others) {
     try {
       const result = await fetchResource(resource)
 
       if (result === null) {
-        // Not modified
         skipped++
         continue
       }
 
       if (result.ok) {
-        // Save raw content
         const rawPath = getRawPath(resource.type, resource.id)
         mkdirSync(dirname(rawPath), { recursive: true })
         writeFileSync(rawPath, result.data)
@@ -87,7 +140,7 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
         )
         failed++
       }
-    } catch (error) {
+    } catch {
       updateManifest.run(
         'failed',
         null,
@@ -100,15 +153,11 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
       failed++
     }
 
-    // Progress logging
-    const processed = fetched + failed + skipped
-    if (processed % 50 === 0 || processed === total) {
-      log(`  Progress: ${processed}/${total} (${fetched} fetched, ${failed} failed, ${skipped} skipped)`)
-    }
-
-    // Rate limiting
     await sleep(100)
   }
+
+  // Close browser if it was used
+  await closeBrowser()
 
   log(`Fetch complete: ${fetched} fetched, ${failed} failed, ${skipped} skipped`)
 }
@@ -125,8 +174,6 @@ interface FetchResourceResult {
 async function fetchResource(resource: ManifestRow): Promise<FetchResourceResult | null> {
   if (resource.type === 'doc') {
     return fetchDoc(resource)
-  } else if (resource.type === 'talk') {
-    return fetchTalk(resource)
   } else if (resource.type === 'sample') {
     return fetchSample(resource)
   }
@@ -179,33 +226,6 @@ async function fetchDoc(resource: ManifestRow): Promise<FetchResourceResult | nu
       title = extractDocTitle(data)
     } catch {
       // Ignore JSON parse errors
-    }
-  }
-
-  return {
-    ok: result.ok,
-    data: result.data,
-    etag: result.etag,
-    lastModified: result.lastModified,
-    contentHash: result.contentHash,
-    title,
-  }
-}
-
-async function fetchTalk(resource: ManifestRow): Promise<FetchResourceResult | null> {
-  // WWDC videos have a specific URL pattern
-  const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified)
-  if (!result) return null
-
-  let title: string | undefined
-  if (result.ok) {
-    // Extract title from HTML
-    const titleMatch = result.data.match(/<title>([^<]+)<\/title>/i)
-    if (titleMatch) {
-      title = titleMatch[1]
-        .replace(/ - WWDC\d+ - Videos - Apple Developer$/, '')
-        .replace(/ - Apple Developer$/, '')
-        .trim()
     }
   }
 
@@ -282,7 +302,7 @@ function getRawPath(type: ResourceType, id: string): string {
     case 'doc':
       return join(paths.data.raw.docs, `${id}.json`)
     case 'talk':
-      return join(paths.data.raw.videos, `${id}.html`)
+      return join(paths.data.raw.videos, `${id}.json`)
     case 'sample':
       return join(paths.data.raw.samples, `${id}.zip`)
     case 'code_file':
