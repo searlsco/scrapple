@@ -35,6 +35,8 @@ program
   .option('-t, --type <type>', 'Filter by type (doc, talk, sample, code_file)')
   .option('-l, --limit <n>', 'Maximum results', '20')
   .option('--human', 'Human-readable output with formatting')
+  .option('--keyword-only', 'Use only FTS5 keyword search')
+  .option('--semantic-only', 'Use only vector semantic search')
   .action(async (query, options) => {
     ensureDirectories()
     const globalOpts = program.opts()

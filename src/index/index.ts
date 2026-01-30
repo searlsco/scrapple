@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
+import { embedBatch } from '../embeddings.js'
 
 interface GlobalOptions {
   human?: boolean
@@ -169,4 +170,68 @@ function getNormalizedPath(type: ResourceType, id: string): string {
     default:
       return join(paths.data.normalized.dir, id)
   }
+}
+
+interface ContentChunk {
+  rowid: number
+  title: string
+  body: string
+}
+
+export async function embedContent(db: Database.Database, global: GlobalOptions): Promise<void> {
+  const log = (msg: string) => {
+    if (global.human) console.log(`  ${msg}`)
+  }
+
+  // Get content chunks that don't have embeddings yet
+  const toEmbed = db
+    .prepare(`
+      SELECT c.rowid, c.title, c.body
+      FROM content c
+      LEFT JOIN content_vec_map m ON c.rowid = m.content_rowid
+      WHERE m.content_rowid IS NULL
+    `)
+    .all() as ContentChunk[]
+
+  const total = toEmbed.length
+  if (total === 0) {
+    log('All content already has embeddings')
+    return
+  }
+
+  log(`Generating embeddings for ${total} chunks...`)
+
+  const insertVector = db.prepare(`
+    INSERT INTO content_vec (embedding)
+    VALUES (?)
+  `)
+
+  const insertMapping = db.prepare(`
+    INSERT INTO content_vec_map (content_rowid, vec_rowid)
+    VALUES (?, ?)
+  `)
+
+  // Process in batches
+  const BATCH_SIZE = 32
+  let processed = 0
+
+  for (let i = 0; i < toEmbed.length; i += BATCH_SIZE) {
+    const batch = toEmbed.slice(i, i + BATCH_SIZE)
+    const texts = batch.map(row => `${row.title}\n\n${row.body}`)
+
+    const embeddings = await embedBatch(texts)
+
+    for (let j = 0; j < batch.length; j++) {
+      const result = insertVector.run(Buffer.from(embeddings[j].buffer))
+      const vecRowid = result.lastInsertRowid
+      insertMapping.run(batch[j].rowid, vecRowid)
+    }
+
+    processed += batch.length
+    if (processed % 100 === 0 || processed === total) {
+      log(`  Progress: ${processed}/${total}`)
+    }
+  }
+
+  log(`Embedding complete: ${processed} chunks embedded`)
 }

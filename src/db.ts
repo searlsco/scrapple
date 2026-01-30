@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import * as sqliteVec from 'sqlite-vec'
 import { paths } from './paths.js'
 
 export type ResourceType = 'doc' | 'talk' | 'sample' | 'code_file'
@@ -92,6 +93,23 @@ CREATE TRIGGER IF NOT EXISTS content_au AFTER UPDATE ON content BEGIN
 END;
 `
 
+// Vector table schema (created after sqlite-vec extension is loaded)
+const VECTOR_SCHEMA = `
+-- Vector embeddings table for semantic search
+CREATE VIRTUAL TABLE IF NOT EXISTS content_vec USING vec0(
+  embedding float[384]
+);
+
+-- Mapping table to link content.rowid to content_vec.rowid
+-- Note: Can't use foreign key on rowid directly, so we manage consistency manually
+CREATE TABLE IF NOT EXISTS content_vec_map (
+  content_rowid INTEGER PRIMARY KEY,
+  vec_rowid INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vec_map_vec_rowid ON content_vec_map(vec_rowid);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -100,6 +118,9 @@ export function getDb(): Database.Database {
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     db.exec(SCHEMA)
+    // Load sqlite-vec extension and create vector table
+    sqliteVec.load(db)
+    db.exec(VECTOR_SCHEMA)
   }
   return db
 }

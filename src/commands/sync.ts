@@ -2,7 +2,7 @@ import { getDb } from '../db.js'
 import { discover } from '../discover/index.js'
 import { fetchResources } from '../fetch/index.js'
 import { normalizeResources } from '../normalize/index.js'
-import { indexResources } from '../index/index.js'
+import { indexResources, embedContent } from '../index/index.js'
 
 interface SyncOptions {
   discoverOnly?: boolean
@@ -36,6 +36,8 @@ export async function sync(options: SyncOptions, global: GlobalOptions): Promise
   if (!options.discoverOnly && !options.fetchOnly && !options.normalizeOnly) {
     if (global.human) console.log('Indexing content...')
     await indexResources(db, global)
+    if (global.human) console.log('Generating embeddings...')
+    await embedContent(db, global)
   }
 
   if (global.human) console.log('Sync complete.')
