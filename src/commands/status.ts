@@ -40,18 +40,34 @@ export async function status(global: GlobalOptions): Promise<void> {
   if (global.human) {
     console.log('=== Scrapple Status ===\n')
 
-    console.log('By Status:')
-    for (const row of byStatus) {
-      console.log(`  ${row.status}: ${row.count}`)
-    }
+    // Type counts table
+    const typeWidth = Math.max(10, ...byType.map(r => r.type.length))
+    const countWidth = Math.max(7, ...byType.map(r => r.count.toLocaleString().length))
 
-    console.log('\nBy Type:')
+    console.log('By Type:')
+    console.log(`  ${'─'.repeat(typeWidth + countWidth + 7)}`)
+    console.log(`  │ ${'Type'.padEnd(typeWidth)} │ ${'Count'.padStart(countWidth)} │`)
+    console.log(`  ${'─'.repeat(typeWidth + countWidth + 7)}`)
     for (const row of byType) {
-      console.log(`  ${row.type}: ${row.count}`)
+      console.log(`  │ ${row.type.padEnd(typeWidth)} │ ${row.count.toLocaleString().padStart(countWidth)} │`)
     }
+    console.log(`  ${'─'.repeat(typeWidth + countWidth + 7)}`)
 
-    console.log(`\nTotal resources: ${total.count}`)
-    console.log(`Indexed documents: ${indexed.count}`)
+    // Status counts table
+    const statusWidth = Math.max(10, ...byStatus.map(r => r.status.length))
+    const statusCountWidth = Math.max(7, ...byStatus.map(r => r.count.toLocaleString().length))
+
+    console.log('\nBy Status:')
+    console.log(`  ${'─'.repeat(statusWidth + statusCountWidth + 7)}`)
+    console.log(`  │ ${'Status'.padEnd(statusWidth)} │ ${'Count'.padStart(statusCountWidth)} │`)
+    console.log(`  ${'─'.repeat(statusWidth + statusCountWidth + 7)}`)
+    for (const row of byStatus) {
+      console.log(`  │ ${row.status.padEnd(statusWidth)} │ ${row.count.toLocaleString().padStart(statusCountWidth)} │`)
+    }
+    console.log(`  ${'─'.repeat(statusWidth + statusCountWidth + 7)}`)
+
+    console.log(`\nTotal resources: ${total.count.toLocaleString()}`)
+    console.log(`Indexed documents: ${indexed.count.toLocaleString()}`)
 
     if (failed.length > 0) {
       console.log('\nRecent failures:')
