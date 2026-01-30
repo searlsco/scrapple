@@ -51,3 +51,42 @@ export async function fetchWithCache(
 export function urlToId(url: string): string {
   return createHash('sha256').update(url).digest('hex').slice(0, 16)
 }
+
+export interface BinaryFetchResult {
+  ok: boolean
+  status: number
+  etag?: string
+  lastModified?: string
+  contentHash: string
+  data: Buffer
+}
+
+export async function fetchBinary(url: string): Promise<BinaryFetchResult | null> {
+  const headers: Record<string, string> = {
+    'User-Agent': USER_AGENT,
+  }
+
+  const response = await fetch(url, { headers })
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      contentHash: '',
+      data: Buffer.alloc(0),
+    }
+  }
+
+  const arrayBuffer = await response.arrayBuffer()
+  const data = Buffer.from(arrayBuffer)
+  const contentHash = createHash('sha256').update(data).digest('hex')
+
+  return {
+    ok: true,
+    status: response.status,
+    etag: response.headers.get('etag') || undefined,
+    lastModified: response.headers.get('last-modified') || undefined,
+    contentHash,
+    data,
+  }
+}

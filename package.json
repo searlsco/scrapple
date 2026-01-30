@@ -28,12 +28,14 @@
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
+    "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.7.0",
     "commander": "^13.0.0",
     "playwright": "^1.50.0",
     "sqlite-vec": "^0.1.7-alpha.2"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"

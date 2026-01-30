@@ -1,8 +1,27 @@
 import Database from 'better-sqlite3'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, extname, basename } from 'node:path'
+import { createHash } from 'node:crypto'
+import AdmZip from 'adm-zip'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
+
+// Source file extensions to extract from samples
+const SOURCE_EXTENSIONS = new Set([
+  '.swift',
+  '.m',
+  '.mm',
+  '.h',
+  '.c',
+  '.cpp',
+  '.metal',
+  '.strings',
+  '.plist',
+  '.json',
+  '.xml',
+  '.storyboard',
+  '.xib',
+])
 
 interface GlobalOptions {
   human?: boolean
@@ -41,8 +60,10 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
         continue
       }
 
-      const rawContent = readFileSync(rawPath, 'utf-8')
-      const normalizedContent = normalizeContent(resource, rawContent)
+      const rawContent = resource.type === 'sample'
+        ? readFileSync(rawPath) // Read as buffer for ZIPs
+        : readFileSync(rawPath, 'utf-8')
+      const normalizedContent = normalizeContent(resource, rawContent, db)
 
       if (normalizedContent) {
         const normalizedPath = getNormalizedPath(resource.type, resource.id)
@@ -69,16 +90,16 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
   log(`Normalize complete: ${normalized} normalized, ${failed} failed`)
 }
 
-function normalizeContent(resource: ManifestRow, rawContent: string): string | null {
+function normalizeContent(resource: ManifestRow, rawContent: string | Buffer, db: Database.Database): string | null {
   switch (resource.type) {
     case 'doc':
-      return normalizeDoc(resource, rawContent)
+      return normalizeDoc(resource, rawContent as string)
     case 'talk':
-      return normalizeTalk(resource, rawContent)
+      return normalizeTalk(resource, rawContent as string)
     case 'sample':
-      return normalizeSample(resource, rawContent)
+      return normalizeSample(resource, rawContent as Buffer, db)
     default:
-      return rawContent
+      return typeof rawContent === 'string' ? rawContent : rawContent.toString('utf-8')
   }
 }
 
@@ -145,15 +166,14 @@ function normalizeTalk(resource: ManifestRow, rawContent: string): string | null
   }
 }
 
-function normalizeSample(resource: ManifestRow, rawContent: string): string | null {
-  // For now, just extract text from the sample page
-  // TODO: handle ZIP files properly
+function normalizeSample(resource: ManifestRow, rawContent: Buffer, db: Database.Database): string | null {
+  // Handle ZIP files
   if (resource.url.endsWith('.zip')) {
-    // ZIP handling would require additional library
-    return null
+    return extractAndIndexZip(resource, rawContent, db)
   }
 
-  const text = extractTextFromHtml(rawContent)
+  // Non-ZIP sample pages (shouldn't happen with new flow)
+  const text = extractTextFromHtml(rawContent.toString('utf-8'))
   const title = resource.title || 'Sample Code'
 
   let md = `# ${title}\n\n`
@@ -163,6 +183,92 @@ function normalizeSample(resource: ManifestRow, rawContent: string): string | nu
   }
 
   return md
+}
+
+function extractAndIndexZip(resource: ManifestRow, zipBuffer: Buffer, db: Database.Database): string | null {
+  try {
+    const zip = new AdmZip(zipBuffer)
+    const entries = zip.getEntries()
+    const title = resource.title || 'Sample Code'
+
+    const insertCodeFile = db.prepare(`
+      INSERT OR IGNORE INTO manifest (id, type, url, source, status, title)
+      VALUES (?, 'code_file', ?, 'sample-extract', 'normalized', ?)
+    `)
+
+    const sourceFiles: { path: string; content: string }[] = []
+
+    for (const entry of entries) {
+      if (entry.isDirectory) continue
+
+      const ext = extname(entry.entryName).toLowerCase()
+      if (!SOURCE_EXTENSIONS.has(ext)) continue
+
+      // Skip hidden files and build artifacts
+      const name = basename(entry.entryName)
+      if (name.startsWith('.')) continue
+      if (entry.entryName.includes('/.build/')) continue
+      if (entry.entryName.includes('/DerivedData/')) continue
+      if (entry.entryName.includes('/Pods/')) continue
+
+      try {
+        const content = entry.getData().toString('utf-8')
+
+        // Create a unique ID for this code file
+        const fileUrl = `${resource.url}#${entry.entryName}`
+        const fileId = createHash('sha256').update(fileUrl).digest('hex').slice(0, 16)
+
+        // Save the source file
+        const normalizedPath = join(paths.data.normalized.samples, resource.id, entry.entryName)
+        mkdirSync(dirname(normalizedPath), { recursive: true })
+        writeFileSync(normalizedPath, content)
+
+        // Add to manifest
+        insertCodeFile.run(fileId, fileUrl, `${title} - ${name}`)
+
+        sourceFiles.push({ path: entry.entryName, content })
+      } catch {
+        // Skip files that can't be read as UTF-8
+      }
+    }
+
+    // Create a summary markdown for the sample
+    let md = `# ${title}\n\n`
+    md += `URL: ${resource.url}\n\n`
+    md += `## Source Files (${sourceFiles.length})\n\n`
+
+    for (const file of sourceFiles) {
+      md += `### ${file.path}\n\n`
+      md += `\`\`\`${getLanguageFromExt(extname(file.path))}\n`
+      // Truncate very long files
+      const truncated = file.content.length > 5000
+        ? file.content.slice(0, 5000) + '\n// ... (truncated)'
+        : file.content
+      md += truncated
+      md += '\n```\n\n'
+    }
+
+    return md
+  } catch (error) {
+    // ZIP extraction failed
+    return null
+  }
+}
+
+function getLanguageFromExt(ext: string): string {
+  const map: Record<string, string> = {
+    '.swift': 'swift',
+    '.m': 'objc',
+    '.mm': 'objc',
+    '.h': 'objc',
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.metal': 'metal',
+    '.json': 'json',
+    '.xml': 'xml',
+    '.plist': 'xml',
+  }
+  return map[ext.toLowerCase()] || ''
 }
 
 function jsonDocToMarkdown(data: unknown, resource: ManifestRow): string {

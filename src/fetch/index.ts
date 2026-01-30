@@ -2,10 +2,13 @@ import Database from 'better-sqlite3'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { fetchWithCache } from '../http.js'
+import { fetchWithCache, fetchBinary, urlToId } from '../http.js'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
 import { fetchWWDCBatch, closeBrowser } from './playwright.js'
+
+// Base URL for sample code downloads
+const SAMPLE_DOWNLOAD_BASE = 'https://docs-assets.developer.apple.com/published/'
 
 interface GlobalOptions {
   human?: boolean
@@ -106,7 +109,7 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
   // Fetch other resources one by one
   for (const resource of others) {
     try {
-      const result = await fetchResource(resource)
+      const result = await fetchResource(resource, db)
 
       if (result === null) {
         skipped++
@@ -171,9 +174,9 @@ interface FetchResourceResult {
   title?: string
 }
 
-async function fetchResource(resource: ManifestRow): Promise<FetchResourceResult | null> {
+async function fetchResource(resource: ManifestRow, db: Database.Database): Promise<FetchResourceResult | null> {
   if (resource.type === 'doc') {
-    return fetchDoc(resource)
+    return fetchDoc(resource, db)
   } else if (resource.type === 'sample') {
     return fetchSample(resource)
   }
@@ -191,7 +194,12 @@ async function fetchResource(resource: ManifestRow): Promise<FetchResourceResult
   }
 }
 
-async function fetchDoc(resource: ManifestRow): Promise<FetchResourceResult | null> {
+interface SampleDownloadInfo {
+  identifier: string
+  url: string
+}
+
+async function fetchDoc(resource: ManifestRow, db?: Database.Database): Promise<FetchResourceResult | null> {
   // Extract path from documentation URL
   const match = resource.url.match(/\/documentation\/(.+?)(?:\/)?$/)
   if (!match) {
@@ -220,10 +228,18 @@ async function fetchDoc(resource: ManifestRow): Promise<FetchResourceResult | nu
   if (!result) return null
 
   let title: string | undefined
+  let sampleDownload: SampleDownloadInfo | undefined
+
   if (result.ok) {
     try {
       const data = JSON.parse(result.data)
       title = extractDocTitle(data)
+      sampleDownload = extractSampleDownload(data)
+
+      // If there's sample code, download the ZIP
+      if (sampleDownload && db) {
+        await downloadSampleZip(sampleDownload, resource, db)
+      }
     } catch {
       // Ignore JSON parse errors
     }
@@ -236,6 +252,61 @@ async function fetchDoc(resource: ManifestRow): Promise<FetchResourceResult | nu
     lastModified: result.lastModified,
     contentHash: result.contentHash,
     title,
+  }
+}
+
+function extractSampleDownload(data: unknown): SampleDownloadInfo | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const obj = data as Record<string, unknown>
+
+  if (obj.sampleCodeDownload && typeof obj.sampleCodeDownload === 'object') {
+    const download = obj.sampleCodeDownload as Record<string, unknown>
+    if (download.action && typeof download.action === 'object') {
+      const action = download.action as Record<string, unknown>
+      if (typeof action.identifier === 'string' && action.isActive) {
+        const identifier = action.identifier
+        return {
+          identifier,
+          url: `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
+async function downloadSampleZip(
+  download: SampleDownloadInfo,
+  parentDoc: ManifestRow,
+  db: Database.Database
+): Promise<void> {
+  // Create a manifest entry for the sample ZIP
+  const sampleId = urlToId(download.url)
+
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO manifest (id, type, url, source, status, title)
+    VALUES (?, 'sample', ?, 'sample-download', 'discovered', ?)
+  `)
+
+  const zipName = download.identifier.split('/').pop() || 'sample.zip'
+  const title = zipName.replace('.zip', '').replace(/([A-Z])/g, ' $1').trim()
+
+  insert.run(sampleId, download.url, title)
+
+  // Fetch the ZIP using binary fetch
+  const result = await fetchBinary(download.url)
+  if (result?.ok) {
+    const rawPath = join(paths.data.raw.samples, `${sampleId}.zip`)
+    mkdirSync(dirname(rawPath), { recursive: true })
+    writeFileSync(rawPath, result.data)
+
+    const updateManifest = db.prepare(`
+      UPDATE manifest
+      SET status = 'fetched', fetched_at = ?, content_hash = ?
+      WHERE id = ?
+    `)
+    updateManifest.run(Date.now(), result.contentHash, sampleId)
   }
 }
 
