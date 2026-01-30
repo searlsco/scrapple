@@ -1,0 +1,361 @@
+Working assumptions
+	•	“26 series of releases” refers to Apple’s current major platform/tool versions labeled 26 (iOS 26, iPadOS 26, macOS 26, tvOS 26, visionOS 26, watchOS 26, Xcode 26), as presented on Apple’s What’s new hub.  ￼
+	•	Apple Developer Documentation pages are largely JS-rendered, but can be fetched via Apple’s undocumented JSON endpoints (primary pattern: /tutorials/data/documentation/{path}.json) with a browser-like User-Agent to avoid 403s.  ￼
+	•	WWDC25 session pages are crawlable via the public listing and each session page includes a text transcript and resource links in the HTML.  ￼
+
+Where this could be wrong / needs discovery:
+	•	The exact completeness of Apple’s JSON graph for “all docs pertaining to 26” depends on how you define “pertaining” (strictly “new/updated for 26” vs “entire docs that apply to SDK 26”). The plan below handles both by supporting two modes.
+
+⸻
+
+Project shape: manifest-driven pipeline + local index + CLI
+
+End state
+
+A local repository containing:
+	1.	Docs: Apple Developer Documentation content relevant to the 26 releases (raw JSON + normalized text).
+	2.	Talks: transcripts for all sessions in scope (raw HTML + normalized text), with resource links captured.
+	3.	Sample code: all downloadable sample projects in scope, unpacked, with file-level indexing.
+	4.	Index: a single local database powering fast CLI search (lexical + optional semantic).
+
+Core design choices to keep it tractable
+	•	Manifest-first: every discovered artifact becomes a row in a manifest DB/table before fetching. This makes the agent’s work resumable and auditable.
+	•	Two-phase crawling: “discover → fetch → normalize → index”, with idempotent steps and caching (ETag/Last-Modified).
+	•	Two scope modes (configurable):
+	•	Curated/WWDC mode (recommended initially): everything reachable from /whats-new/, WWDC25 resources, and 26 release notes/updates pages.
+	•	Exhaustive “26 availability” mode: crawl broader docs graph and include any page whose availability metadata indicates iOS/iPadOS/macOS/tvOS/visionOS/watchOS 26 (requires more crawling, but still automated).
+
+⸻
+
+Data sources to use as crawl seeds
+
+A) 26-series hubs (primary scope anchors)
+	•	https://developer.apple.com/whats-new/ (lists iOS 26 / iPadOS 26 / … and “Documentation”, “Sample code”, “Release Notes”, “Session videos”).  ￼
+	•	https://developer.apple.com/wwdc25/ (points to docs/sample code/videos entry points).  ￼
+
+B) Talks (enumeration is straightforward)
+	•	https://developer.apple.com/videos/wwdc2025/ provides the full session list as links.  ￼
+	•	Each session page (e.g. /videos/play/wwdc2025/247/) contains transcript text + resources + video links.  ￼
+
+C) Docs (avoid JS by using Apple’s JSON endpoints)
+	•	Use Apple’s undocumented JSON API for documentation pages:
+https://developer.apple.com/tutorials/data/documentation/{path}.json (fallback: .../documentation/{path}/data.json)  ￼
+	•	Optionally seed from a “master technology list” endpoint referenced by community reverse-engineering (useful for exhaustive crawling): technologies.json.  ￼
+
+⸻
+
+Storage layout (simple, debuggable)
+
+apple26/
+  config.yaml
+  data/
+    raw/
+      docs_json/              # {doc_id}.json
+      videos_html/            # {session_id}.html
+      sample_zips/            # {sample_id}.zip
+    normalized/
+      docs_md/                # {doc_id}.md
+      transcripts_txt/        # {session_id}.txt
+      sample_unpacked/        # {sample_id}/...
+  index/
+    apple26.sqlite            # manifest + FTS
+  logs/
+
+
+⸻
+
+Data model (manifest + content)
+
+Manifest table (single source of truth)
+
+Fields (minimum):
+	•	id (stable; e.g., SHA-256 of canonical URL)
+	•	type ∈ {doc, talk, sample, code_file}
+	•	url (canonical)
+	•	source (e.g. whats-new, wwdc25, doc-json, sample-library)
+	•	status ∈ {discovered, fetched, normalized, indexed, failed}
+	•	etag, last_modified, fetched_at
+	•	title (best-effort)
+	•	tags/platforms (best-effort; include “iOS 26”, etc when detected)
+	•	relationships (optional; parent/child, related resources)
+
+Normalized content records (for search)
+	•	doc_id, type, title, body_text, url, metadata_json
+	•	Chunked rows for FTS (e.g. 1–2 KB chunks) for better ranking/snippets.
+
+⸻
+
+Step-by-step plan the agent can execute
+
+Phase 0 — Guardrails and “polite crawler” defaults
+	1.	Respect ToS / robots: implement rate limiting, caching, retries, and avoid parallelism that looks like abuse.
+	2.	User-Agent: always send a browser-like User-Agent for Apple’s JSON endpoints; some implementations report 403 otherwise.  ￼
+	3.	Concurrency: default 4–8 concurrent fetches with adaptive backoff (429/503).
+
+Definition of done:
+	•	A fetch(url) utility that supports ETag/Last-Modified + retries + a global rate limiter.
+
+⸻
+
+Phase 1 — Discovery (build the manifest without downloading everything)
+
+1A) Talks discovery
+	•	Fetch https://developer.apple.com/videos/wwdc2025/
+	•	Extract all session links of the form /videos/play/wwdc2025/{id}/ and record as type=talk.  ￼
+
+Definition of done:
+	•	Manifest has N WWDC25 sessions with URLs + numeric session IDs.
+
+1B) Docs discovery (two-tier)
+
+Tier 1 (curated, high signal):
+	•	Fetch https://developer.apple.com/whats-new/
+	•	Extract platform links: iOS 26 / iPadOS 26 / macOS 26 / tvOS 26 / visionOS 26 / watchOS 26
+	•	Extract resource links: Documentation / Sample code / Release Notes / Session videos  ￼
+	•	For each extracted docs URL under /documentation/...:
+	•	Convert to JSON endpoint and record as type=doc.
+
+Tier 2 (graph expansion):
+	•	When normalizing a doc JSON, collect its outgoing references (DocC JSON typically includes a references dictionary of nodes) and enqueue additional doc URLs.
+	•	Stop expansion based on scope mode:
+	•	Curated mode: only follow links that mention 26-series keywords (see filter section).
+	•	Exhaustive mode: follow broadly, but only store/index docs that match 26 availability (still keep “skeleton metadata” for traversal control).
+
+Definition of done:
+	•	Manifest has at least:
+	•	all /whats-new/ platform pages
+	•	all WWDC25 session resource doc links (once talks are processed; see below)
+	•	a growing queue for docs graph traversal.
+
+1C) Sample code discovery
+
+Use three complementary enumerators (because “all sample code” is the easiest place to miss things):
+	1.	From /whats-new/ “Sample code” link (best aligned to 26-series)  ￼
+	2.	From WWDC25 sessions: each talk page has a Resources section; capture any sample-code/doc pages that indicate “associated sample code project” and follow them.  ￼
+	3.	From the Sample Code Library (broad completeness): crawl the sample library listing via JSON if available; if not, fall back to Playwright-driven rendering + extraction (see fallback below).
+
+Definition of done:
+	•	Manifest has a list of type=sample entries with either:
+	•	a direct .zip URL, or
+	•	a landing page URL from which a zip URL can be derived during normalization.
+
+⸻
+
+Phase 2 — Fetch (raw artifacts, cached)
+
+2A) Fetch talks
+	•	Download HTML for each /videos/play/.../ page.
+	•	Store data/raw/videos_html/{session_id}.html.
+
+2B) Fetch docs JSON
+	•	For each /documentation/{path} URL:
+	•	Convert to JSON endpoint:
+	•	Primary: https://developer.apple.com/tutorials/data/documentation/{path}.json  ￼
+	•	Fallback: https://developer.apple.com/documentation/{path}/data.json  ￼
+	•	Store JSON to data/raw/docs_json/{doc_id}.json.
+
+2C) Fetch sample zips
+	•	Download .zip files to data/raw/sample_zips/{sample_id}.zip
+	•	Store SHA-256 hash for integrity/dedup.
+
+Definition of done:
+	•	status=fetched for all items with successful raw payloads; failures are retriable with backoff.
+
+⸻
+
+Phase 3 — Normalize (turn raw into searchable text + metadata)
+
+3A) Normalize talk transcripts
+
+From each WWDC session HTML:
+	•	Extract:
+	•	Title
+	•	Summary
+	•	Transcript text (full)
+	•	Chapters (timestamps)
+	•	Resources links (docs URLs, downloads)
+	•	Write:
+	•	data/normalized/transcripts_txt/{session_id}.txt
+	•	metadata_json (chapters/resources)
+
+Evidence this works: session pages expose transcript and resources in the HTML view.  ￼
+
+Fallback for missing transcripts:
+	•	If transcript section is absent:
+	1.	Look for captions/subtitles URL in the HTML (often VTT).
+	2.	If still missing, optionally run offline ASR (Whisper/faster-whisper) on extracted audio (requires downloading the video/audio; heavier but automatable).
+
+3B) Normalize docs JSON to text
+
+Implement a DocC JSON flattener:
+	•	Extract metadata.title, abstract, and content sections (often primaryContentSections).
+	•	Preserve code blocks separately (tag them as code fragments).
+	•	Extract availability/platform metadata when present.
+	•	Emit Markdown-ish text to data/normalized/docs_md/{doc_id}.md.
+
+Important constraint:
+	•	The JSON shape varies by page type (articles vs symbols vs tutorials). The normalizer should be schema-tolerant:
+	•	walk known arrays (primaryContentSections, sections)
+	•	fallback to recursively extracting text nodes.
+
+3C) Normalize sample code zips
+	•	Unzip to data/normalized/sample_unpacked/{sample_id}/
+	•	Scan file tree; for each source file:
+	•	record path, language, size
+	•	optionally strip build products (ignore DerivedData, .build, Pods, etc)
+
+Definition of done:
+	•	Every fetched item produces at least one normalized text artifact + metadata record, or is marked failed with reason.
+
+⸻
+
+Phase 4 — Scope filter: define “pertaining to 26 series”
+
+Implement a deterministic filter function so the agent doesn’t need subjective judgment.
+
+Keywords/labels to match (baseline)
+	•	iOS 26, iPadOS 26, macOS 26, tvOS 26, visionOS 26, watchOS 26, Xcode 26
+
+Inclusion rules
+
+Include an item if any are true:
+	1.	It is directly linked from /whats-new/ platform/tool entries.  ￼
+	2.	It is a WWDC25 session or a resource linked from a WWDC25 session.  ￼
+	3.	Its doc metadata includes availability “introduced in” or “available in” a 26-series platform (when that info exists in JSON).
+	4.	It’s in the “Release Notes” branch from /whats-new/.  ￼
+	5.	It is sample code reachable from /whats-new/ “Sample code” or from WWDC25 session resources.  ￼
+
+This yields two practical modes:
+	•	Curated mode: rules (1)(2)(4)(5) + keyword mentions. Fast, aligned to WWDC25.
+	•	Exhaustive availability mode: add rule (3) and broaden doc graph traversal.
+
+⸻
+
+Phase 5 — Indexing (SQLite FTS5 first; optional vectors later)
+
+5A) SQLite schema
+	•	items table: one row per manifest entry (metadata + status)
+	•	content table: chunked text (doc/talk/code-file)
+	•	content_fts virtual table (FTS5) indexing:
+	•	title, body, tags, type, platforms
+
+Chunking strategy:
+	•	Docs/talks: split into ~1–2 KB chunks with stable anchors (heading-based when possible).
+	•	Code files: chunk by function/class boundaries if parseable; otherwise by N lines.
+
+5B) Ranking and snippets
+	•	Use FTS bm25() ranking.
+	•	Return:
+	•	title
+	•	type (doc/talk/code)
+	•	short snippet with highlighted match
+	•	URL + local path
+
+5C) Optional semantic search
+
+If needed, add embeddings later (FAISS or sqlite-vector extension). Keep it optional so the MVP remains tractable.
+
+Definition of done:
+	•	apple26 search "Enhanced Security" --type doc returns relevant docs.
+	•	apple26 search "Swift Build" --type talk returns the right session transcript (e.g., Xcode 26 talk).  ￼
+
+⸻
+
+Phase 6 — CLI tool (small surface area, high utility)
+
+Implement with typer or click:
+	•	apple26 discover
+Populates manifest from seeds (does not download payloads).
+	•	apple26 fetch [--only docs|talks|samples]
+Downloads raw artifacts with caching.
+	•	apple26 normalize
+Builds normalized text artifacts.
+	•	apple26 index
+Builds/updates SQLite FTS index.
+	•	apple26 search <query> [--type ...] [--platform ...] [--limit N]
+	•	apple26 show <id>
+Print the normalized doc/talk chunk(s).
+	•	apple26 open <id>
+Opens canonical URL in browser (optional).
+	•	apple26 doctor
+Reports missing transcripts, failed zips, index coverage.
+
+The agent should wire apple26 update as a convenience that runs: discover → fetch → normalize → index.
+
+⸻
+
+Phase 7 — Hardening so the agent can run unattended
+
+Reliability features
+	•	Resume: every stage checks status fields and skips completed items.
+	•	Retries: exponential backoff; classify permanent failures (404) vs transient (429/5xx).
+	•	Rate limiting: global semaphore + per-host throttling.
+	•	Dedup: content-addressed storage (hash) for zips; canonical URL normalization.
+
+Validation steps (must be automated)
+	•	Count of WWDC25 sessions discovered equals count fetched and indexed.
+	•	Session listing is accessible and contains many session links.  ￼
+	•	Random sampling:
+	•	pick 10 docs → confirm JSON fetched and normalized text non-empty
+	•	pick 10 talks → transcript non-empty
+	•	pick 10 samples → zip unpacks and contains source files
+	•	Link integrity:
+	•	for each session resource doc link, confirm it resolves via JSON endpoint.
+
+⸻
+
+The key implementation trick: converting docs URLs → JSON endpoints
+
+The agent should implement a pure function:
+	•	Input: https://developer.apple.com/documentation/<path>
+	•	Output (primary): https://developer.apple.com/tutorials/data/documentation/<path>.json  ￼
+	•	Fallback: https://developer.apple.com/documentation/<path>/data.json  ￼
+
+And always send headers including a normal User-Agent.  ￼
+
+This is the difference between a tractable offline mirror and a fragile JS scraper.
+
+⸻
+
+Fallbacks if Apple changes endpoints / JSON shape
+
+Because the JSON API is undocumented, design in explicit fallbacks:
+	1.	Endpoint fallback: try both JSON URL patterns (above).  ￼
+	2.	Playwright fallback (only for pages you cannot fetch as JSON):
+	•	Render the page
+	•	Extract innerText and relevant links
+	•	Store HTML snapshot + extracted text
+	3.	Schema drift tolerance:
+	•	Keep the raw JSON
+	•	Normalize via a recursive “extract all text nodes” fallback if expected fields are missing
+	4.	Discovery fallback:
+	•	If technologies.json becomes unavailable, fall back to:
+	•	/whats-new/ and /wwdc25/ and session resources (still yields a comprehensive 26-series corpus).  ￼
+
+⸻
+
+Minimum viable execution order (to keep it achievable)
+	1.	Implement manifest DB + fetch utility (headers, caching, retries).
+	2.	Implement WWDC25 session discovery + transcript normalization + indexing.
+	•	This immediately gives a searchable corpus and seeds doc links from session resources.  ￼
+	3.	Implement docs JSON fetch + normalization for a handful of doc page types.  ￼
+	4.	Add /whats-new/ seed ingestion to cover the complete 26-series set.  ￼
+	5.	Add sample code discovery/download/unpack and code-file indexing.
+	6.	Add doctor + idempotent update flow.
+
+This sequencing ensures the agent reaches a usable CLI quickly and then expands coverage without re-architecture.
+
+⸻
+
+What you get at the end
+	•	A single command to refresh the local corpus:
+	•	apple26 update --mode curated (or --mode exhaustive)
+	•	Fast queries:
+	•	apple26 search "AlarmKit" --platform iOS26
+	•	apple26 search "Enhanced Security capability" --type talk
+	•	apple26 search "ManagedApp Framework" --type doc
+	•	Local-first browsing:
+	•	apple26 show <result-id> prints the normalized content
+	•	apple26 open <result-id> opens the canonical page
+
+This plan is intentionally “agent-friendly”: it decomposes into deterministic subproblems, uses resumable state, avoids brittle JS scraping by leaning on Apple’s JSON endpoints, and has explicit fallbacks for the parts most likely to drift.
