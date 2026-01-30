@@ -33,11 +33,11 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
           WHEN 'sample-library' THEN 4
           ELSE 5
         END
-      LIMIT 100
     `)
     .all() as ManifestRow[]
 
-  log(`Fetching ${toFetch.length} resources...`)
+  const total = toFetch.length
+  log(`Fetching ${total} resources...`)
 
   const updateManifest = db.prepare(`
     UPDATE manifest
@@ -100,11 +100,17 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
       failed++
     }
 
+    // Progress logging
+    const processed = fetched + failed + skipped
+    if (processed % 50 === 0 || processed === total) {
+      log(`  Progress: ${processed}/${total} (${fetched} fetched, ${failed} failed, ${skipped} skipped)`)
+    }
+
     // Rate limiting
     await sleep(100)
   }
 
-  log(`Fetched: ${fetched}, Failed: ${failed}, Skipped: ${skipped}`)
+  log(`Fetch complete: ${fetched} fetched, ${failed} failed, ${skipped} skipped`)
 }
 
 interface FetchResourceResult {

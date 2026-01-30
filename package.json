@@ -10,6 +10,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
+    "test": "node --test dist/test/*.test.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },

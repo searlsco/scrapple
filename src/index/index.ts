@@ -21,11 +21,11 @@ export async function indexResources(db: Database.Database, global: GlobalOption
     .prepare(`
       SELECT * FROM manifest
       WHERE status = 'normalized'
-      LIMIT 100
     `)
     .all() as ManifestRow[]
 
-  log(`Indexing ${toIndex.length} resources...`)
+  const total = toIndex.length
+  log(`Indexing ${total} resources...`)
 
   const updateManifest = db.prepare(`
     UPDATE manifest SET status = ? WHERE id = ?
@@ -81,9 +81,15 @@ export async function indexResources(db: Database.Database, global: GlobalOption
       updateManifest.run('failed', resource.id)
       failed++
     }
+
+    // Progress logging
+    const processed = indexed + failed
+    if (processed % 50 === 0 || processed === total) {
+      log(`  Progress: ${processed}/${total} (${indexed} indexed, ${failed} failed)`)
+    }
   }
 
-  log(`Indexed: ${indexed}, Failed: ${failed}`)
+  log(`Index complete: ${indexed} indexed, ${failed} failed`)
 }
 
 function chunkContent(content: string): string[] {

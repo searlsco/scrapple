@@ -18,11 +18,11 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
     .prepare(`
       SELECT * FROM manifest
       WHERE status = 'fetched'
-      LIMIT 100
     `)
     .all() as ManifestRow[]
 
-  log(`Normalizing ${toNormalize.length} resources...`)
+  const total = toNormalize.length
+  log(`Normalizing ${total} resources...`)
 
   const updateManifest = db.prepare(`
     UPDATE manifest SET status = ? WHERE id = ?
@@ -58,9 +58,15 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
       updateManifest.run('failed', resource.id)
       failed++
     }
+
+    // Progress logging
+    const processed = normalized + failed
+    if (processed % 50 === 0 || processed === total) {
+      log(`  Progress: ${processed}/${total} (${normalized} normalized, ${failed} failed)`)
+    }
   }
 
-  log(`Normalized: ${normalized}, Failed: ${failed}`)
+  log(`Normalize complete: ${normalized} normalized, ${failed} failed`)
 }
 
 function normalizeContent(resource: ManifestRow, rawContent: string): string | null {
