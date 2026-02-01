@@ -1,5 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
+import { paths } from '../paths.js'
+import { getCodeFileNormalizedPath } from '../index/index.js'
 
 // Test content chunking logic
 const MAX_CHUNK_SIZE = 10000
@@ -134,5 +138,37 @@ describe('Break point finding', () => {
     const text = 'a'.repeat(100)
     const breakPoint = findBreakPoint(text, 50)
     assert.strictEqual(breakPoint, 50)
+  })
+})
+
+describe('Code file path resolution', () => {
+  it('extracts sample ID and path from code_file URL', () => {
+    const sampleUrl = 'https://docs-assets.developer.apple.com/published/15035f283d6a/FrutaBuildingAFeatureRichAppWithSwiftUI.zip'
+    const filePath = 'Shared/Model/Smoothie.swift'
+    const codeFileUrl = `${sampleUrl}#${filePath}`
+
+    const expectedSampleId = createHash('sha256').update(sampleUrl).digest('hex').slice(0, 16)
+    const expectedPath = join(paths.data.normalized.samples, expectedSampleId, filePath)
+
+    const result = getCodeFileNormalizedPath(codeFileUrl)
+    assert.strictEqual(result, expectedPath)
+  })
+
+  it('handles paths with special characters', () => {
+    const sampleUrl = 'https://docs-assets.developer.apple.com/published/abc123/Sample.zip'
+    const filePath = 'Sources/Views/My View.swift'
+    const codeFileUrl = `${sampleUrl}#${filePath}`
+
+    const expectedSampleId = createHash('sha256').update(sampleUrl).digest('hex').slice(0, 16)
+    const expectedPath = join(paths.data.normalized.samples, expectedSampleId, filePath)
+
+    const result = getCodeFileNormalizedPath(codeFileUrl)
+    assert.strictEqual(result, expectedPath)
+  })
+
+  it('returns empty string for URLs without fragment', () => {
+    const url = 'https://example.com/sample.zip'
+    const result = getCodeFileNormalizedPath(url)
+    assert.strictEqual(result, '')
   })
 })

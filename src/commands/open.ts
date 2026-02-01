@@ -1,15 +1,14 @@
 import { exec } from 'node:child_process'
-import { getDb, ManifestRow } from '../db.js'
+import { getDb } from '../db.js'
+import { resolveReference } from './show.js'
 
-export async function open(id: string): Promise<void> {
+export async function open(ref: string): Promise<void> {
   const db = getDb()
 
-  const manifest = db
-    .prepare('SELECT * FROM manifest WHERE id = ?')
-    .get(id) as ManifestRow | undefined
+  const manifest = resolveReference(ref, db)
 
   if (!manifest) {
-    console.error(`Resource not found: ${id}`)
+    console.error(`Resource not found: ${ref}`)
     process.exit(1)
   }
 

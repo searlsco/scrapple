@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
 import { embedBatch } from '../embeddings.js'
@@ -46,7 +47,7 @@ export async function indexResources(db: Database.Database, global: GlobalOption
 
   for (const resource of toIndex) {
     try {
-      const normalizedPath = getNormalizedPath(resource.type, resource.id)
+      const normalizedPath = getNormalizedPath(resource.type, resource.id, resource.url)
 
       if (!existsSync(normalizedPath)) {
         updateManifest.run('failed', resource.id)
@@ -157,7 +158,24 @@ function extractFirstLine(content: string): string | null {
   return firstLine.replace(/^#+\s*/, '').trim() || null
 }
 
-function getNormalizedPath(type: ResourceType, id: string): string {
+/**
+ * Parses a code_file URL (e.g., "https://...zip#path/to/file.swift")
+ * and returns the normalized path where the file was extracted.
+ */
+export function getCodeFileNormalizedPath(url: string): string {
+  const hashIndex = url.indexOf('#')
+  if (hashIndex === -1) return ''
+
+  const sampleUrl = url.slice(0, hashIndex)
+  const filePath = url.slice(hashIndex + 1)
+
+  // Hash the sample URL to get the sample_id (same logic as urlToId in http.ts)
+  const sampleId = createHash('sha256').update(sampleUrl).digest('hex').slice(0, 16)
+
+  return join(paths.data.normalized.samples, sampleId, filePath)
+}
+
+function getNormalizedPath(type: ResourceType, id: string, url?: string): string {
   switch (type) {
     case 'doc':
       return join(paths.data.normalized.docs, `${id}.md`)
@@ -166,7 +184,7 @@ function getNormalizedPath(type: ResourceType, id: string): string {
     case 'sample':
       return join(paths.data.normalized.samples, `${id}.md`)
     case 'code_file':
-      return join(paths.data.normalized.samples, id)
+      return url ? getCodeFileNormalizedPath(url) : join(paths.data.normalized.samples, id)
     default:
       return join(paths.data.normalized.dir, id)
   }
