@@ -21,7 +21,8 @@ program
   .name('scrapple')
   .description('Local Apple Developer Documentation scraper and search tool')
   .version(pkg.version)
-  .option('--human', 'Human-readable output with formatting')
+  .helpOption('--help', 'Display help for command')
+  .option('-h, --human', 'Human-readable output')
 
 program
   .command('sync')
@@ -42,7 +43,7 @@ program
   .description('Search the documentation index')
   .option('-t, --type <type>', 'Filter by type (doc, talk, sample, code_file)')
   .option('-l, --limit <n>', 'Maximum results', '20')
-  .option('--human', 'Human-readable output with formatting')
+  .option('-h, --human', 'Human-readable output')
   .option('--keyword-only', 'Use only FTS5 keyword search')
   .option('--semantic-only', 'Use only vector semantic search')
   .action(async (query, options) => {

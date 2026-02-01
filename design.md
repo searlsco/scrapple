@@ -69,7 +69,7 @@ A local Apple Developer Documentation scraper and search tool for accessibility.
 ### CLI Output
 
 - **Default**: Agent-friendly (structured, pipeable)
-- **`--human`**: Human-readable with formatting, colors, snippets (note: `-h` conflicts with `--help`)
+- **`-h, --human`**: Human-readable with formatting, colors, snippets
 
 ### Version Handling
 

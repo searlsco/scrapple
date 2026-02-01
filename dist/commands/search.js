@@ -59,7 +59,7 @@ function ftsSearch(db, query, limit, typeFilter) {
       c.title,
       c.type,
       c.url,
-      snippet(content_fts, 1, '>>>', '<<<', '...', 32) as snippet,
+      snippet(content_fts, 1, '', '', '...', 32) as snippet,
       rank
     FROM content_fts
     JOIN content c ON content_fts.rowid = c.rowid

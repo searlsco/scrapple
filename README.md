@@ -17,7 +17,7 @@ brew install searlsco/tap/scrapple
 First, sync the documentation. This will take a while on the first run (we're talking "start it before bed" territory), but subsequent syncs are fast because everything is cached for up to a year:
 
 ```sh
-scrapple sync --human
+scrapple sync -h
 ```
 
 Once synced, search away:
@@ -28,7 +28,7 @@ scrapple search "SwiftUI navigation"
 
 ## Design Priorities
 
-**Agent-first** — Default output is JSON for easy parsing. Add `--human` to any command for readable output.
+**Agent-first** — Default output is JSON for easy parsing. Add `-h` to any command for readable output.
 
 **Offline-first** — Once synced, everything works locally. No network latency, no rate limits, no "I couldn't access that page" excuses.
 
@@ -41,7 +41,7 @@ scrapple search "SwiftUI navigation"
 Discovers, fetches, normalizes, and indexes Apple's documentation. Idempotent—run it as often as you like. Content is cached for 12 months since Apple typically updates docs annually around WWDC.
 
 ```sh
-scrapple sync --human
+scrapple sync -h
 ```
 
 | Option | Description |
@@ -69,7 +69,7 @@ scrapple search "ContentView" --type code_file --limit 3
 | `-l, --limit <n>` | Maximum results (default: 20) |
 | `--keyword-only` | Use only FTS5 keyword search |
 | `--semantic-only` | Use only vector semantic search |
-| `--human` | Human-readable output |
+| `-h, --human` | Human-readable output |
 
 ### `show`
 
@@ -105,7 +105,7 @@ scrapple open /documentation/swiftui/environmentvalues
 Show sync progress and statistics:
 
 ```sh
-scrapple status --human
+scrapple status -h
 ```
 
 ### `reset`
