@@ -1,5 +1,7 @@
 # scrapple - Local Apple Developer Documentation for AI Agents
 
+[![Certified Shovelware](https://justin.searls.co/img/shovelware.svg)](https://justin.searls.co/shovelware/)
+
 If you've ever asked an AI coding assistant about SwiftUI or UIKit, you've probably noticed it hallucinates APIs that don't exist, misremembers method signatures, and confidently cites documentation it's never seen. That's because Apple's developer documentation is locked behind JavaScript-rendered pages that don't play nice with web search or LLM training data.
 
 Scrapple fixes this by scraping Apple's entire developer documentation—WWDC session transcripts, API references, sample code, and all—into a local SQLite database with full-text and semantic search. Your AI agent can query it instantly, offline, without burning tokens on web searches that return nothing useful.
