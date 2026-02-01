@@ -1,5 +1,7 @@
-export declare const EMBEDDINGS_AVAILABLE = false;
-export declare function embed(_text: string): Promise<Float32Array | null>;
-export declare function embedBatch(_texts: string[]): Promise<(Float32Array | null)[]>;
+import { type FeatureExtractionPipeline } from '@xenova/transformers';
+export declare const EMBEDDINGS_AVAILABLE = true;
+export declare function getEmbedder(): Promise<FeatureExtractionPipeline>;
+export declare function embed(text: string): Promise<Float32Array>;
+export declare function embedBatch(texts: string[]): Promise<Float32Array[]>;
 export declare function closeEmbedder(): void;
 //# sourceMappingURL=embeddings.d.ts.map
