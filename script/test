@@ -4,4 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 npm run build
+
+# Verify dist/ is up to date (not stale)
+if ! git diff --quiet dist/; then
+  echo "ERROR: dist/ is out of date. Run 'npm run build' and commit the changes." >&2
+  git diff --stat dist/
+  exit 1
+fi
+
 npm test
