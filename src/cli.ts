@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { ensureDirectories } from './paths.js'
 import { closeDb } from './db.js'
 import { sync } from './commands/sync.js'
@@ -9,12 +12,15 @@ import { open } from './commands/open.js'
 import { status } from './commands/status.js'
 import { reset } from './commands/reset.js'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
+
 const program = new Command()
 
 program
   .name('scrapple')
   .description('Local Apple Developer Documentation scraper and search tool')
-  .version('0.1.0')
+  .version(pkg.version)
   .option('--human', 'Human-readable output with formatting')
 
 program
