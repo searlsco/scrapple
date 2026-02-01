@@ -1,0 +1,285 @@
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { fetchWithCache, fetchBinary, urlToId } from '../http.js';
+import { paths } from '../paths.js';
+import { fetchWWDCBatch, closeBrowser } from './playwright.js';
+// Base URL for sample code downloads
+const SAMPLE_DOWNLOAD_BASE = 'https://docs-assets.developer.apple.com/published/';
+// JSON endpoint patterns for docs
+const DOC_JSON_URL = (path) => `https://developer.apple.com/tutorials/data/documentation/${path}.json`;
+const DOC_JSON_FALLBACK = (path) => `https://developer.apple.com/documentation/${path}/data.json`;
+export async function fetchResources(db, global) {
+    const log = (msg) => {
+        if (global.human)
+            console.log(`  ${msg}`);
+    };
+    // Get all discovered resources that need fetching
+    const toFetch = db
+        .prepare(`
+      SELECT * FROM manifest
+      WHERE status = 'discovered'
+      ORDER BY
+        CASE source
+          WHEN 'wwdc' THEN 1
+          WHEN 'whats-new' THEN 2
+          WHEN 'doc-graph' THEN 3
+          WHEN 'sample-library' THEN 4
+          ELSE 5
+        END
+    `)
+        .all();
+    const total = toFetch.length;
+    log(`Fetching ${total} resources...`);
+    const updateManifest = db.prepare(`
+    UPDATE manifest
+    SET status = ?, etag = ?, last_modified = ?, fetched_at = ?, content_hash = ?, title = ?
+    WHERE id = ?
+  `);
+    let fetched = 0;
+    let failed = 0;
+    let skipped = 0;
+    // Separate talks from other resources for batch processing
+    const talks = toFetch.filter(r => r.type === 'talk');
+    const others = toFetch.filter(r => r.type !== 'talk');
+    // Batch fetch talks with Playwright (concurrent)
+    if (talks.length > 0) {
+        log(`  Fetching ${talks.length} WWDC sessions with Playwright (5 concurrent)...`);
+        const urlToResource = new Map(talks.map(r => [r.url, r]));
+        const urls = talks.map(r => r.url);
+        const results = await fetchWWDCBatch(urls, (completed, batchTotal) => {
+            if (completed % 25 === 0 || completed === batchTotal) {
+                log(`    Playwright progress: ${completed}/${batchTotal}`);
+            }
+        });
+        for (const [url, content] of results) {
+            const resource = urlToResource.get(url);
+            if (content) {
+                const data = JSON.stringify(content, null, 2);
+                const contentHash = createHash('sha256').update(data).digest('hex');
+                const rawPath = getRawPath(resource.type, resource.id);
+                mkdirSync(dirname(rawPath), { recursive: true });
+                writeFileSync(rawPath, data);
+                updateManifest.run('fetched', null, null, Date.now(), contentHash, content.title || resource.title, resource.id);
+                fetched++;
+            }
+            else {
+                updateManifest.run('failed', null, null, Date.now(), null, resource.title, resource.id);
+                failed++;
+            }
+        }
+    }
+    // Fetch other resources one by one
+    for (const resource of others) {
+        try {
+            const result = await fetchResource(resource, db);
+            if (result === null) {
+                skipped++;
+                continue;
+            }
+            if (result.ok) {
+                const rawPath = getRawPath(resource.type, resource.id);
+                mkdirSync(dirname(rawPath), { recursive: true });
+                writeFileSync(rawPath, result.data);
+                updateManifest.run('fetched', result.etag || null, result.lastModified || null, Date.now(), result.contentHash, result.title || resource.title, resource.id);
+                fetched++;
+            }
+            else {
+                updateManifest.run('failed', null, null, Date.now(), null, resource.title, resource.id);
+                failed++;
+            }
+        }
+        catch {
+            updateManifest.run('failed', null, null, Date.now(), null, resource.title, resource.id);
+            failed++;
+        }
+        await sleep(100);
+    }
+    // Close browser if it was used
+    await closeBrowser();
+    log(`Fetch complete: ${fetched} fetched, ${failed} failed, ${skipped} skipped`);
+}
+async function fetchResource(resource, db) {
+    if (resource.type === 'doc') {
+        return fetchDoc(resource, db);
+    }
+    else if (resource.type === 'sample') {
+        return fetchSample(resource);
+    }
+    // Fallback: direct fetch
+    const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
+    if (!result)
+        return null;
+    return {
+        ok: result.ok,
+        data: result.data,
+        etag: result.etag,
+        lastModified: result.lastModified,
+        contentHash: result.contentHash,
+    };
+}
+async function fetchDoc(resource, db) {
+    // Extract path from documentation URL
+    const match = resource.url.match(/\/documentation\/(.+?)(?:\/)?$/);
+    if (!match) {
+        // Direct fetch as fallback
+        const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
+        if (!result)
+            return null;
+        return {
+            ok: result.ok,
+            data: result.data,
+            etag: result.etag,
+            lastModified: result.lastModified,
+            contentHash: result.contentHash,
+        };
+    }
+    const path = match[1];
+    // Try primary JSON endpoint
+    let result = await fetchWithCache(DOC_JSON_URL(path), resource.etag, resource.last_modified);
+    // Fallback to alternative endpoint
+    if (!result?.ok) {
+        result = await fetchWithCache(DOC_JSON_FALLBACK(path), resource.etag, resource.last_modified);
+    }
+    if (!result)
+        return null;
+    let title;
+    let sampleDownload;
+    if (result.ok) {
+        try {
+            const data = JSON.parse(result.data);
+            title = extractDocTitle(data);
+            sampleDownload = extractSampleDownload(data);
+            // If there's sample code, download the ZIP
+            if (sampleDownload && db) {
+                await downloadSampleZip(sampleDownload, resource, db);
+            }
+        }
+        catch {
+            // Ignore JSON parse errors
+        }
+    }
+    return {
+        ok: result.ok,
+        data: result.data,
+        etag: result.etag,
+        lastModified: result.lastModified,
+        contentHash: result.contentHash,
+        title,
+    };
+}
+function extractSampleDownload(data) {
+    if (!data || typeof data !== 'object')
+        return undefined;
+    const obj = data;
+    if (obj.sampleCodeDownload && typeof obj.sampleCodeDownload === 'object') {
+        const download = obj.sampleCodeDownload;
+        if (download.action && typeof download.action === 'object') {
+            const action = download.action;
+            if (typeof action.identifier === 'string' && action.isActive) {
+                const identifier = action.identifier;
+                return {
+                    identifier,
+                    url: `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
+                };
+            }
+        }
+    }
+    return undefined;
+}
+async function downloadSampleZip(download, parentDoc, db) {
+    // Create a manifest entry for the sample ZIP
+    const sampleId = urlToId(download.url);
+    const insert = db.prepare(`
+    INSERT OR IGNORE INTO manifest (id, type, url, source, status, title)
+    VALUES (?, 'sample', ?, 'sample-download', 'discovered', ?)
+  `);
+    const zipName = download.identifier.split('/').pop() || 'sample.zip';
+    const title = zipName.replace('.zip', '').replace(/([A-Z])/g, ' $1').trim();
+    insert.run(sampleId, download.url, title);
+    // Fetch the ZIP using binary fetch
+    const result = await fetchBinary(download.url);
+    if (result?.ok) {
+        const rawPath = join(paths.data.raw.samples, `${sampleId}.zip`);
+        mkdirSync(dirname(rawPath), { recursive: true });
+        writeFileSync(rawPath, result.data);
+        const updateManifest = db.prepare(`
+      UPDATE manifest
+      SET status = 'fetched', fetched_at = ?, content_hash = ?
+      WHERE id = ?
+    `);
+        updateManifest.run(Date.now(), result.contentHash, sampleId);
+    }
+}
+async function fetchSample(resource) {
+    // For sample code, we might need to fetch a ZIP file
+    if (resource.url.endsWith('.zip')) {
+        const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
+        if (!result)
+            return null;
+        return {
+            ok: result.ok,
+            data: result.data,
+            etag: result.etag,
+            lastModified: result.lastModified,
+            contentHash: result.contentHash,
+        };
+    }
+    // Otherwise fetch the sample page
+    const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
+    if (!result)
+        return null;
+    let title;
+    if (result.ok) {
+        const titleMatch = result.data.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch) {
+            title = titleMatch[1].replace(/ - Apple Developer$/, '').trim();
+        }
+    }
+    return {
+        ok: result.ok,
+        data: result.data,
+        etag: result.etag,
+        lastModified: result.lastModified,
+        contentHash: result.contentHash,
+        title,
+    };
+}
+function extractDocTitle(data) {
+    if (!data || typeof data !== 'object')
+        return undefined;
+    const obj = data;
+    // Try common title fields
+    if (typeof obj.title === 'string')
+        return obj.title;
+    if (obj.metadata && typeof obj.metadata === 'object') {
+        const meta = obj.metadata;
+        if (typeof meta.title === 'string')
+            return meta.title;
+    }
+    if (obj.identifier && typeof obj.identifier === 'object') {
+        const id = obj.identifier;
+        if (typeof id.interfaceLanguage === 'string') {
+            // Extract from URL-like identifier
+        }
+    }
+    return undefined;
+}
+function getRawPath(type, id) {
+    switch (type) {
+        case 'doc':
+            return join(paths.data.raw.docs, `${id}.json`);
+        case 'talk':
+            return join(paths.data.raw.videos, `${id}.json`);
+        case 'sample':
+            return join(paths.data.raw.samples, `${id}.zip`);
+        case 'code_file':
+            return join(paths.data.raw.samples, id);
+        default:
+            return join(paths.data.raw.dir, id);
+    }
+}
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+//# sourceMappingURL=index.js.map

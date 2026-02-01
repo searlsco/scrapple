@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
+# Build output tracked for Homebrew distribution
+# dist/
 
 # IDE
 .idea/
