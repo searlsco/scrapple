@@ -81,6 +81,10 @@ function ftsSearch(db, query, limit, typeFilter) {
 }
 async function vectorSearch(db, query, limit, typeFilter) {
     const embedding = await embed(query);
+    // Embeddings disabled or failed
+    if (!embedding) {
+        return new Map();
+    }
     // Check if we have any embeddings
     const countResult = db.prepare('SELECT COUNT(*) as count FROM content_vec').get();
     if (countResult.count === 0) {

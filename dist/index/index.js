@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { paths } from '../paths.js';
-import { embedBatch } from '../embeddings.js';
+import { embedBatch, EMBEDDINGS_AVAILABLE } from '../embeddings.js';
 // Maximum chunk size for FTS indexing (in characters)
 const MAX_CHUNK_SIZE = 10000;
 export async function indexResources(db, global) {
@@ -145,6 +145,10 @@ export async function embedContent(db, global) {
         if (global.human)
             console.log(`  ${msg}`);
     };
+    if (!EMBEDDINGS_AVAILABLE) {
+        log('Embeddings disabled (dependency issues)');
+        return;
+    }
     // Get content chunks that don't have embeddings yet
     const toEmbed = db
         .prepare(`
@@ -176,7 +180,10 @@ export async function embedContent(db, global) {
         const texts = batch.map(row => `${row.title}\n\n${row.body}`);
         const embeddings = await embedBatch(texts);
         for (let j = 0; j < batch.length; j++) {
-            const result = insertVector.run(Buffer.from(embeddings[j].buffer));
+            const emb = embeddings[j];
+            if (!emb)
+                continue; // Skip if embedding failed
+            const result = insertVector.run(Buffer.from(emb.buffer));
             const vecRowid = result.lastInsertRowid;
             insertMapping.run(batch[j].rowid, vecRowid);
         }

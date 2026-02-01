@@ -156,6 +156,11 @@ async function vectorSearch(
 ): Promise<Map<number, { vecRank: number; distance: number }>> {
   const embedding = await embed(query)
 
+  // Embeddings disabled or failed
+  if (!embedding) {
+    return new Map()
+  }
+
   // Check if we have any embeddings
   const countResult = db.prepare('SELECT COUNT(*) as count FROM content_vec').get() as { count: number }
   if (countResult.count === 0) {

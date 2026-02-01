@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { paths } from '../paths.js'
 import { ManifestRow, ResourceType } from '../db.js'
-import { embedBatch } from '../embeddings.js'
+import { embedBatch, EMBEDDINGS_AVAILABLE } from '../embeddings.js'
 
 interface GlobalOptions {
   human?: boolean
@@ -201,6 +201,11 @@ export async function embedContent(db: Database.Database, global: GlobalOptions)
     if (global.human) console.log(`  ${msg}`)
   }
 
+  if (!EMBEDDINGS_AVAILABLE) {
+    log('Embeddings disabled (dependency issues)')
+    return
+  }
+
   // Get content chunks that don't have embeddings yet
   const toEmbed = db
     .prepare(`
@@ -240,7 +245,9 @@ export async function embedContent(db: Database.Database, global: GlobalOptions)
     const embeddings = await embedBatch(texts)
 
     for (let j = 0; j < batch.length; j++) {
-      const result = insertVector.run(Buffer.from(embeddings[j].buffer))
+      const emb = embeddings[j]
+      if (!emb) continue // Skip if embedding failed
+      const result = insertVector.run(Buffer.from(emb.buffer))
       const vecRowid = result.lastInsertRowid
       insertMapping.run(batch[j].rowid, vecRowid)
     }
