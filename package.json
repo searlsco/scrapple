@@ -1,6 +1,6 @@
 {
   "name": "scrapple",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Local Apple Developer Documentation scraper and search tool",
   "type": "module",
   "bin": {
@@ -33,6 +33,9 @@
     "commander": "^13.0.0",
     "playwright": "^1.50.0",
     "sqlite-vec": "^0.1.7-alpha.2"
+  },
+  "overrides": {
+    "sharp": "file:./stubs/sharp"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
