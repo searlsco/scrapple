@@ -176,7 +176,7 @@ Do NOT guess at Apple API signatures or behaviors. Always verify against scrappl
 
 ### Claude Code Skill
 
-Create `.claude/skills/apple-docs.md`:
+Create `.claude/skills/apple-docs/SKILL.md`:
 
 ~~~markdown
 ---
@@ -207,7 +207,7 @@ Search Apple developer documentation using scrapple.
 
 Here's the Claude skill I use, which incorporates web search, scrapple, and Xcode MCP:
 
-```md
+~~~md
 ---
 name: apple-docs
 description: >
@@ -413,7 +413,7 @@ Related:
    authoritative. Forums and blogs are useful for workarounds and practical
    experience but can be wrong or outdated. When they conflict, trust Apple's
    docs and flag the discrepancy.
-```
+~~~
 
 ## Storage
 
