@@ -176,36 +176,9 @@ Do NOT guess at Apple API signatures or behaviors. Always verify against scrappl
 
 ### Claude Code Skill
 
+Here's the Claude skill I use, which incorporates web search, scrapple, and Xcode MCP
+
 Create `.claude/skills/apple-docs/SKILL.md`:
-
-~~~markdown
----
-name: apple
-description: Search Apple developer documentation
-user-invocable: true
-arguments:
-  - name: query
-    description: Search query for Apple docs
-    required: true
----
-
-<apple-docs>
-
-Search Apple developer documentation using scrapple.
-
-## Instructions
-
-1. Run `scrapple search "{{query}}"` to find relevant documentation
-2. Review results and select the most relevant matches
-3. Use `scrapple show <id>` to retrieve full content for promising results
-4. Summarize findings, citing specific APIs and documentation
-
-</apple-docs>
-~~~
-
-## Example Claude Skill
-
-Here's the Claude skill I use, which incorporates web search, scrapple, and Xcode MCP:
 
 ~~~md
 ---
