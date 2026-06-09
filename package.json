@@ -1,6 +1,6 @@
 {
   "name": "scrapple",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Local Apple Developer Documentation scraper and search tool",
   "type": "module",
   "bin": {

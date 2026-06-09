@@ -50,6 +50,17 @@ CREATE INDEX IF NOT EXISTS idx_manifest_status ON manifest(status);
 CREATE INDEX IF NOT EXISTS idx_manifest_type ON manifest(type);
 CREATE INDEX IF NOT EXISTS idx_manifest_source ON manifest(source);
 
+-- Doc graph progress: tracks docs whose references have already been crawled
+CREATE TABLE IF NOT EXISTS doc_graph_progress (
+  url TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('processed', 'failed')),
+  processed_at INTEGER NOT NULL,
+  refs_found INTEGER NOT NULL DEFAULT 0,
+  error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_graph_progress_status ON doc_graph_progress(status);
+
 -- Content table: stores normalized text for FTS
 CREATE TABLE IF NOT EXISTS content (
   id TEXT NOT NULL,

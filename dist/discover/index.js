@@ -22,7 +22,7 @@ export async function discover(db, global) {
     log(`  Found ${techCount} technology docs`);
     // 4. Documentation graph (follow refs from discovered docs)
     log('Discovering documentation graph...');
-    const docGraphCount = await discoverDocGraph(db);
+    const docGraphCount = await discoverDocGraph(db, global);
     log(`  Found ${docGraphCount} linked documents`);
     // 5. Sample Code Library (broad coverage)
     log('Discovering sample code...');
