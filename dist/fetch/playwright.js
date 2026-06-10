@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 let browser = null;
 const CONCURRENCY = 5; // Number of parallel page fetches
+export const WWDC_NAVIGATION_WAIT_UNTIL = 'load';
 export async function getBrowser() {
     if (!browser) {
         browser = await chromium.launch({ headless: true });
@@ -36,7 +37,8 @@ export async function fetchWWDCWithPlaywright(url) {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        // Apple video pages keep background requests active after usable content loads.
+        await page.goto(url, { waitUntil: WWDC_NAVIGATION_WAIT_UNTIL, timeout: 30000 });
         // Extract title first
         const title = await page.$eval('h1, .video-title, title', (el) => el.textContent?.trim() || '').catch(() => '');
         // Extract description from the supplement section

@@ -1,4 +1,5 @@
 import { Browser } from 'playwright';
+export declare const WWDC_NAVIGATION_WAIT_UNTIL = "load";
 export declare function getBrowser(): Promise<Browser>;
 export declare function closeBrowser(): Promise<void>;
 export declare function fetchWWDCBatch(urls: string[], onProgress?: (completed: number, total: number) => void): Promise<Map<string, WWDCContent | null>>;

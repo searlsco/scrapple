@@ -9,6 +9,17 @@ const SAMPLE_DOWNLOAD_BASE = 'https://docs-assets.developer.apple.com/published/
 // JSON endpoint patterns for docs
 const DOC_JSON_URL = (path) => `https://developer.apple.com/tutorials/data/documentation/${path}.json`;
 const DOC_JSON_FALLBACK = (path) => `https://developer.apple.com/documentation/${path}/data.json`;
+const FETCH_PROGRESS_ITEM_INTERVAL = 100;
+const FETCH_PROGRESS_TIME_INTERVAL_MS = 10_000;
+export function shouldLogFetchProgress(processed, total, now, lastLoggedAt) {
+    if (total === 0)
+        return false;
+    if (processed === 1 || processed === total)
+        return true;
+    if (processed % FETCH_PROGRESS_ITEM_INTERVAL === 0)
+        return true;
+    return now - lastLoggedAt >= FETCH_PROGRESS_TIME_INTERVAL_MS;
+}
 export async function fetchResources(db, global) {
     const log = (msg) => {
         if (global.human)
@@ -70,28 +81,46 @@ export async function fetchResources(db, global) {
         }
     }
     // Fetch other resources one by one
+    if (others.length > 0) {
+        log(`  Fetching ${others.length} non-WWDC resources...`);
+    }
+    let otherProcessed = 0;
+    let otherFetched = 0;
+    let otherFailed = 0;
+    let otherSkipped = 0;
+    let lastOtherProgressAt = Date.now();
     for (const resource of others) {
         try {
             const result = await fetchResource(resource, db);
             if (result === null) {
                 skipped++;
-                continue;
+                otherSkipped++;
             }
-            if (result.ok) {
+            else if (result.ok) {
                 const rawPath = getRawPath(resource.type, resource.id);
                 mkdirSync(dirname(rawPath), { recursive: true });
                 writeFileSync(rawPath, result.data);
                 updateManifest.run('fetched', result.etag || null, result.lastModified || null, Date.now(), result.contentHash, result.title || resource.title, resource.id);
                 fetched++;
+                otherFetched++;
             }
             else {
                 updateManifest.run('failed', null, null, Date.now(), null, resource.title, resource.id);
                 failed++;
+                otherFailed++;
             }
         }
         catch {
             updateManifest.run('failed', null, null, Date.now(), null, resource.title, resource.id);
             failed++;
+            otherFailed++;
+        }
+        otherProcessed++;
+        const now = Date.now();
+        if (shouldLogFetchProgress(otherProcessed, others.length, now, lastOtherProgressAt)) {
+            log(`    Fetch progress: ${otherProcessed}/${others.length} ` +
+                `(${otherFetched} fetched, ${otherFailed} failed, ${otherSkipped} skipped)`);
+            lastOtherProgressAt = now;
         }
         await sleep(100);
     }

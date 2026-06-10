@@ -2,6 +2,7 @@ import { chromium, Browser } from 'playwright'
 
 let browser: Browser | null = null
 const CONCURRENCY = 5 // Number of parallel page fetches
+export const WWDC_NAVIGATION_WAIT_UNTIL = 'load'
 
 export async function getBrowser(): Promise<Browser> {
   if (!browser) {
@@ -57,7 +58,8 @@ export async function fetchWWDCWithPlaywright(url: string): Promise<WWDCContent 
   const page = await browser.newPage()
 
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+    // Apple video pages keep background requests active after usable content loads.
+    await page.goto(url, { waitUntil: WWDC_NAVIGATION_WAIT_UNTIL, timeout: 30000 })
 
     // Extract title first
     const title = await page.$eval(
