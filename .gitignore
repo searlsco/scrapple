@@ -16,6 +16,9 @@ node_modules/
 # Logs
 *.log
 
+# Local issue tracker metadata
+.beads/
+
 # Environment
 .env
 .env.*
