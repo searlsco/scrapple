@@ -75,7 +75,7 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
         updateManifest.run('failed', resource.id)
         failed++
       }
-    } catch (error) {
+    } catch {
       updateManifest.run('failed', resource.id)
       failed++
     }
@@ -249,7 +249,7 @@ function extractAndIndexZip(resource: ManifestRow, zipBuffer: Buffer, db: Databa
     }
 
     return md
-  } catch (error) {
+  } catch {
     // ZIP extraction failed
     return null
   }

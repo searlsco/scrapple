@@ -79,7 +79,7 @@ export async function indexResources(db: Database.Database, global: GlobalOption
 
       updateManifest.run('indexed', resource.id)
       indexed++
-    } catch (error) {
+    } catch {
       updateManifest.run('failed', resource.id)
       failed++
     }
@@ -109,7 +109,7 @@ function chunkContent(content: string): string[] {
     }
 
     // Find a good break point (paragraph, sentence, or word)
-    let breakPoint = findBreakPoint(remaining, MAX_CHUNK_SIZE)
+    const breakPoint = findBreakPoint(remaining, MAX_CHUNK_SIZE)
     chunks.push(remaining.slice(0, breakPoint).trim())
     remaining = remaining.slice(breakPoint).trim()
   }

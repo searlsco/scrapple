@@ -62,7 +62,7 @@ export async function normalizeResources(db, global) {
                 failed++;
             }
         }
-        catch (error) {
+        catch {
             updateManifest.run('failed', resource.id);
             failed++;
         }
@@ -210,7 +210,7 @@ function extractAndIndexZip(resource, zipBuffer, db) {
         }
         return md;
     }
-    catch (error) {
+    catch {
         // ZIP extraction failed
         return null;
     }

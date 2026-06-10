@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { join, extname, basename } from 'node:path'
+import { extname, basename } from 'node:path'
 import AdmZip from 'adm-zip'
 
 // Source file extensions to extract (mirrored from normalize/index.ts)

@@ -53,7 +53,6 @@ export async function fetchWWDCWithPlaywright(url) {
             }
         }
         // Extract transcript - the function runs in browser context
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const transcript = await page.$eval('.transcript', (el) => {
             const text = el.textContent || '';
             // Find where the actual transcript starts (first timestamp)

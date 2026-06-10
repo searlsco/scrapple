@@ -1,4 +1,4 @@
-import { getDb, closeDb } from '../db.js'
+import { closeDb } from '../db.js'
 import { paths } from '../paths.js'
 import { unlinkSync, existsSync } from 'node:fs'
 import * as readline from 'node:readline'

@@ -42,7 +42,6 @@ function extractVideoLinks(html: string, year: number): VideoLink[] {
 
   // Match video links in the format /videos/play/wwdc{year}/{id}/
   const linkRegex = /href="(\/videos\/play\/wwdc\d+\/\d+\/)"/g
-  const titleRegex = /<h4[^>]*class="[^"]*video-title[^"]*"[^>]*>([^<]+)<\/h4>/g
 
   // Extract all video URLs
   const urls = new Set<string>()

@@ -37,7 +37,6 @@ export async function fetchWithCache(url, etag, lastModified, maxRetries = DEFAU
     if (lastModified) {
         headers['If-Modified-Since'] = lastModified;
     }
-    let lastError = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const response = await fetch(url, { headers });
@@ -57,7 +56,6 @@ export async function fetchWithCache(url, etag, lastModified, maxRetries = DEFAU
             };
         }
         catch (error) {
-            lastError = error;
             if (!isRetryableError(error) || attempt === maxRetries) {
                 // Return a failed result for non-retryable errors instead of throwing
                 return {

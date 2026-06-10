@@ -142,12 +142,6 @@ function ftsSearch(
   return map
 }
 
-interface VecSearchResult {
-  vec_rowid: number
-  content_rowid: number
-  distance: number
-}
-
 async function vectorSearch(
   db: Database.Database,
   query: string,
