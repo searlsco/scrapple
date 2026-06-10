@@ -9,6 +9,11 @@ const SAMPLE_DOWNLOAD_BASE = 'https://docs-assets.developer.apple.com/published/
 // JSON endpoint patterns for docs
 const DOC_JSON_URL = (path) => `https://developer.apple.com/tutorials/data/documentation/${path}.json`;
 const DOC_JSON_FALLBACK = (path) => `https://developer.apple.com/documentation/${path}/data.json`;
+export const FETCHABLE_RESOURCE_STATUSES = [
+    'discovered',
+    'failed',
+];
+const FETCHABLE_STATUS_PLACEHOLDERS = FETCHABLE_RESOURCE_STATUSES.map(() => '?').join(', ');
 const FETCH_PROGRESS_ITEM_INTERVAL = 100;
 const FETCH_PROGRESS_TIME_INTERVAL_MS = 10_000;
 export function shouldLogFetchProgress(processed, total, now, lastLoggedAt) {
@@ -25,11 +30,11 @@ export async function fetchResources(db, global) {
         if (global.human)
             console.log(`  ${msg}`);
     };
-    // Get all discovered resources that need fetching
+    // Get all new and previously failed resources that need fetching
     const toFetch = db
         .prepare(`
       SELECT * FROM manifest
-      WHERE status = 'discovered'
+      WHERE status IN (${FETCHABLE_STATUS_PLACEHOLDERS})
       ORDER BY
         CASE source
           WHEN 'wwdc' THEN 1
@@ -39,7 +44,7 @@ export async function fetchResources(db, global) {
           ELSE 5
         END
     `)
-        .all();
+        .all(...FETCHABLE_RESOURCE_STATUSES);
     const total = toFetch.length;
     log(`Fetching ${total} resources...`);
     const updateManifest = db.prepare(`

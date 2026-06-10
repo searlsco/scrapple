@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { fetchWithCache, fetchBinary, urlToId } from '../http.js'
 import { paths } from '../paths.js'
-import { ManifestRow, ResourceType } from '../db.js'
+import { ManifestRow, ResourceStatus, ResourceType } from '../db.js'
 import { fetchWWDCBatch, closeBrowser } from './playwright.js'
 
 // Base URL for sample code downloads
@@ -19,6 +19,11 @@ const DOC_JSON_URL = (path: string) =>
   `https://developer.apple.com/tutorials/data/documentation/${path}.json`
 const DOC_JSON_FALLBACK = (path: string) =>
   `https://developer.apple.com/documentation/${path}/data.json`
+export const FETCHABLE_RESOURCE_STATUSES = [
+  'discovered',
+  'failed',
+] as const satisfies readonly ResourceStatus[]
+const FETCHABLE_STATUS_PLACEHOLDERS = FETCHABLE_RESOURCE_STATUSES.map(() => '?').join(', ')
 const FETCH_PROGRESS_ITEM_INTERVAL = 100
 const FETCH_PROGRESS_TIME_INTERVAL_MS = 10_000
 
@@ -39,11 +44,11 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
     if (global.human) console.log(`  ${msg}`)
   }
 
-  // Get all discovered resources that need fetching
+  // Get all new and previously failed resources that need fetching
   const toFetch = db
     .prepare(`
       SELECT * FROM manifest
-      WHERE status = 'discovered'
+      WHERE status IN (${FETCHABLE_STATUS_PLACEHOLDERS})
       ORDER BY
         CASE source
           WHEN 'wwdc' THEN 1
@@ -53,7 +58,7 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
           ELSE 5
         END
     `)
-    .all() as ManifestRow[]
+    .all(...FETCHABLE_RESOURCE_STATUSES) as ManifestRow[]
 
   const total = toFetch.length
   log(`Fetching ${total} resources...`)

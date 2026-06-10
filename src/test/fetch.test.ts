@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { shouldLogFetchProgress } from '../fetch/index.js'
+import {
+  FETCHABLE_RESOURCE_STATUSES,
+  shouldLogFetchProgress,
+} from '../fetch/index.js'
 import { WWDC_NAVIGATION_WAIT_UNTIL } from '../fetch/playwright.js'
 
 describe('WWDC Playwright navigation', () => {
@@ -32,5 +35,18 @@ describe('fetch progress logging', () => {
 
   it('skips empty fetch sets', () => {
     assert.strictEqual(shouldLogFetchProgress(0, 0, 11_000, 1_000), false)
+  })
+})
+
+describe('fetchable resource statuses', () => {
+  it('retries failed resources on later fetch runs', () => {
+    assert.deepStrictEqual(FETCHABLE_RESOURCE_STATUSES, ['discovered', 'failed'])
+  })
+
+  it('does not refetch resources that already moved past fetch', () => {
+    const statuses: readonly string[] = FETCHABLE_RESOURCE_STATUSES
+    assert.strictEqual(statuses.includes('fetched'), false)
+    assert.strictEqual(statuses.includes('normalized'), false)
+    assert.strictEqual(statuses.includes('indexed'), false)
   })
 })
