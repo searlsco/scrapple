@@ -1,4 +1,4 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline } from '@huggingface/transformers';
 // Singleton embedding pipeline (lazy-loaded)
 let embeddingPipeline = null;
 // Maximum text length for embedding (MiniLM has ~256 token limit)

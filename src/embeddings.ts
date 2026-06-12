@@ -1,4 +1,4 @@
-import { pipeline, type FeatureExtractionPipeline, Tensor } from '@xenova/transformers'
+import { pipeline, type FeatureExtractionPipeline, Tensor } from '@huggingface/transformers'
 
 // Singleton embedding pipeline (lazy-loaded)
 let embeddingPipeline: FeatureExtractionPipeline | null = null

@@ -1,4 +1,4 @@
-import { type FeatureExtractionPipeline } from '@xenova/transformers';
+import { type FeatureExtractionPipeline } from '@huggingface/transformers';
 export declare const EMBEDDINGS_AVAILABLE = true;
 export declare function getEmbedder(): Promise<FeatureExtractionPipeline>;
 export declare function embed(text: string): Promise<Float32Array>;
