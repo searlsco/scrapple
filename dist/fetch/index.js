@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { fetchWithCache, fetchBinary, urlToId } from '../http.js';
 import { paths } from '../paths.js';
 import { fetchWWDCBatch, closeBrowser } from './playwright.js';
+import { normalizeSampleArchive } from '../normalize/index.js';
 // Base URL for sample code downloads
 const SAMPLE_DOWNLOAD_BASE = 'https://docs-assets.developer.apple.com/published/';
 // JSON endpoint patterns for docs
@@ -102,10 +103,13 @@ export async function fetchResources(db, global) {
                 otherSkipped++;
             }
             else if (result.ok) {
-                const rawPath = getRawPath(resource.type, resource.id);
-                mkdirSync(dirname(rawPath), { recursive: true });
-                writeFileSync(rawPath, result.data);
-                updateManifest.run('fetched', result.etag || null, result.lastModified || null, Date.now(), result.contentHash, result.title || resource.title, resource.id);
+                const status = result.normalized ? 'normalized' : 'fetched';
+                if (!result.normalized) {
+                    const rawPath = getRawPath(resource.type, resource.id);
+                    mkdirSync(dirname(rawPath), { recursive: true });
+                    writeFileSync(rawPath, result.data);
+                }
+                updateManifest.run(status, result.etag || null, result.lastModified || null, Date.now(), result.contentHash, result.title || resource.title, resource.id);
                 fetched++;
                 otherFetched++;
             }
@@ -138,7 +142,7 @@ async function fetchResource(resource, db) {
         return fetchDoc(resource, db);
     }
     else if (resource.type === 'sample') {
-        return fetchSample(resource);
+        return fetchSample(resource, db);
     }
     // Fallback: direct fetch
     const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
@@ -230,33 +234,48 @@ async function downloadSampleZip(download, parentDoc, db) {
   `);
     const zipName = download.identifier.split('/').pop() || 'sample.zip';
     const title = zipName.replace('.zip', '').replace(/([A-Z])/g, ' $1').trim();
+    const existing = db.prepare('SELECT status FROM manifest WHERE id = ?').get(sampleId);
     insert.run(sampleId, download.url, title);
-    // Fetch the ZIP using binary fetch
+    if (existing?.status === 'normalized' || existing?.status === 'indexed') {
+        return;
+    }
+    // Fetch and normalize the ZIP without retaining the raw archive.
     const result = await fetchBinary(download.url);
     if (result?.ok) {
-        const rawPath = join(paths.data.raw.samples, `${sampleId}.zip`);
-        mkdirSync(dirname(rawPath), { recursive: true });
-        writeFileSync(rawPath, result.data);
+        const sampleResource = {
+            id: sampleId,
+            type: 'sample',
+            url: download.url,
+            source: 'sample-download',
+            status: 'fetched',
+            etag: result.etag || null,
+            last_modified: result.lastModified || null,
+            fetched_at: Date.now(),
+            content_hash: result.contentHash,
+            title,
+            platforms: parentDoc.platforms,
+        };
+        const normalized = normalizeSampleArchive(sampleResource, result.data, db);
         const updateManifest = db.prepare(`
       UPDATE manifest
-      SET status = 'fetched', fetched_at = ?, content_hash = ?
+      SET status = ?, etag = ?, last_modified = ?, fetched_at = ?, content_hash = ?
       WHERE id = ?
     `);
-        updateManifest.run(Date.now(), result.contentHash, sampleId);
+        updateManifest.run(normalized ? 'normalized' : 'failed', result.etag || null, result.lastModified || null, Date.now(), result.contentHash, sampleId);
     }
 }
-async function fetchSample(resource) {
+async function fetchSample(resource, db) {
     // For sample code, we might need to fetch a ZIP file
     if (resource.url.endsWith('.zip')) {
-        const result = await fetchWithCache(resource.url, resource.etag, resource.last_modified);
-        if (!result)
-            return null;
+        const result = await fetchBinary(resource.url);
+        const normalized = result.ok && normalizeSampleArchive(resource, result.data, db);
         return {
-            ok: result.ok,
+            ok: normalized,
             data: result.data,
             etag: result.etag,
             lastModified: result.lastModified,
             contentHash: result.contentHash,
+            normalized,
         };
     }
     // Otherwise fetch the sample page

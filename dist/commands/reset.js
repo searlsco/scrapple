@@ -1,6 +1,6 @@
 import { closeDb } from '../db.js';
 import { paths } from '../paths.js';
-import { unlinkSync, existsSync } from 'node:fs';
+import { rmSync, existsSync } from 'node:fs';
 import * as readline from 'node:readline';
 export async function reset(options, global) {
     if (!options.confirm) {
@@ -12,20 +12,13 @@ export async function reset(options, global) {
     }
     // Close existing connection
     closeDb();
-    // Delete the database file
-    const dbPath = paths.data.index.db;
-    if (existsSync(dbPath)) {
-        unlinkSync(dbPath);
+    // Delete all scraped data.
+    const dataPath = paths.data.dir;
+    if (existsSync(dataPath)) {
+        rmSync(dataPath, { recursive: true, force: true });
         if (global.human)
-            console.log(`Deleted database: ${dbPath}`);
+            console.log(`Deleted data directory: ${dataPath}`);
     }
-    // Also delete WAL and SHM files if they exist
-    const walPath = dbPath + '-wal';
-    const shmPath = dbPath + '-shm';
-    if (existsSync(walPath))
-        unlinkSync(walPath);
-    if (existsSync(shmPath))
-        unlinkSync(shmPath);
     if (global.human) {
         console.log('Reset complete. Run `scrapple sync` to rebuild from scratch.');
     }

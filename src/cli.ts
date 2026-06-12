@@ -11,6 +11,7 @@ import { show } from './commands/show.js'
 import { open } from './commands/open.js'
 import { status } from './commands/status.js'
 import { reset } from './commands/reset.js'
+import { prune } from './commands/prune.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -86,6 +87,14 @@ program
   .option('--confirm', 'Skip confirmation prompt')
   .action(async (options) => {
     await reset(options, program.opts())
+  })
+
+program
+  .command('prune')
+  .description('Delete raw sample archives after they have been normalized')
+  .option('--dry-run', 'Report raw sample archives without deleting them')
+  .action(async (options) => {
+    await prune(options, program.opts())
   })
 
 program.parse()

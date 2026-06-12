@@ -116,6 +116,15 @@ Delete all scraped data and start fresh:
 scrapple reset --confirm
 ```
 
+### `prune`
+
+Delete raw sample archives while keeping normalized content and the search index:
+
+```sh
+scrapple prune -h
+scrapple prune --dry-run -h
+```
+
 ## Content Types
 
 | Type | Description |

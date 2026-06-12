@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import AdmZip from 'adm-zip';
@@ -40,26 +40,37 @@ export async function normalizeResources(db, global) {
     let failed = 0;
     for (const resource of toNormalize) {
         try {
-            const rawPath = getRawPath(resource.type, resource.id);
+            const rawPath = getExistingRawPath(resource.type, resource.id);
             if (!existsSync(rawPath)) {
                 updateManifest.run('failed', resource.id);
                 failed++;
                 continue;
             }
-            const rawContent = resource.type === 'sample'
-                ? readFileSync(rawPath) // Read as buffer for ZIPs
-                : readFileSync(rawPath, 'utf-8');
-            const normalizedContent = normalizeContent(resource, rawContent, db);
-            if (normalizedContent) {
+            if (resource.type === 'sample') {
+                const normalizedSample = normalizeSampleArchive(resource, readFileSync(rawPath), db);
+                if (normalizedSample) {
+                    deleteRawSampleArchive(rawPath);
+                    updateManifest.run('normalized', resource.id);
+                    normalized++;
+                }
+                else {
+                    updateManifest.run('failed', resource.id);
+                    failed++;
+                }
+            }
+            else {
+                const rawContent = readFileSync(rawPath, 'utf-8');
+                const normalizedContent = normalizeContent(resource, rawContent, db);
+                if (!normalizedContent) {
+                    updateManifest.run('failed', resource.id);
+                    failed++;
+                    continue;
+                }
                 const normalizedPath = getNormalizedPath(resource.type, resource.id);
                 mkdirSync(dirname(normalizedPath), { recursive: true });
                 writeFileSync(normalizedPath, normalizedContent);
                 updateManifest.run('normalized', resource.id);
                 normalized++;
-            }
-            else {
-                updateManifest.run('failed', resource.id);
-                failed++;
             }
         }
         catch {
@@ -85,6 +96,15 @@ function normalizeContent(resource, rawContent, db) {
         default:
             return typeof rawContent === 'string' ? rawContent : rawContent.toString('utf-8');
     }
+}
+export function normalizeSampleArchive(resource, rawContent, db) {
+    const normalizedContent = normalizeSample(resource, rawContent, db);
+    if (!normalizedContent)
+        return false;
+    const normalizedPath = getNormalizedPath(resource.type, resource.id);
+    mkdirSync(dirname(normalizedPath), { recursive: true });
+    writeFileSync(normalizedPath, normalizedContent);
+    return true;
 }
 function normalizeDoc(resource, rawContent) {
     try {
@@ -489,6 +509,25 @@ function getRawPath(type, id) {
             return join(paths.data.raw.samples, id);
         default:
             return join(paths.data.raw.dir, id);
+    }
+}
+function getExistingRawPath(type, id) {
+    const rawPath = getRawPath(type, id);
+    if (existsSync(rawPath))
+        return rawPath;
+    if (type === 'sample') {
+        const legacyRawPath = join(paths.data.raw.samples, id);
+        if (existsSync(legacyRawPath))
+            return legacyRawPath;
+    }
+    return rawPath;
+}
+function deleteRawSampleArchive(rawPath) {
+    try {
+        unlinkSync(rawPath);
+    }
+    catch {
+        // A missing temp archive should not fail a completed normalization.
     }
 }
 function getNormalizedPath(type, id) {

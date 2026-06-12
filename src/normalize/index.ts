@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
 import { dirname, join, extname, basename } from 'node:path'
 import { createHash } from 'node:crypto'
 import AdmZip from 'adm-zip'
@@ -52,7 +52,7 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
 
   for (const resource of toNormalize) {
     try {
-      const rawPath = getRawPath(resource.type, resource.id)
+      const rawPath = getExistingRawPath(resource.type, resource.id)
 
       if (!existsSync(rawPath)) {
         updateManifest.run('failed', resource.id)
@@ -60,20 +60,31 @@ export async function normalizeResources(db: Database.Database, global: GlobalOp
         continue
       }
 
-      const rawContent = resource.type === 'sample'
-        ? readFileSync(rawPath) // Read as buffer for ZIPs
-        : readFileSync(rawPath, 'utf-8')
-      const normalizedContent = normalizeContent(resource, rawContent, db)
+      if (resource.type === 'sample') {
+        const normalizedSample = normalizeSampleArchive(resource, readFileSync(rawPath), db)
+        if (normalizedSample) {
+          deleteRawSampleArchive(rawPath)
+          updateManifest.run('normalized', resource.id)
+          normalized++
+        } else {
+          updateManifest.run('failed', resource.id)
+          failed++
+        }
+      } else {
+        const rawContent = readFileSync(rawPath, 'utf-8')
+        const normalizedContent = normalizeContent(resource, rawContent, db)
 
-      if (normalizedContent) {
+        if (!normalizedContent) {
+          updateManifest.run('failed', resource.id)
+          failed++
+          continue
+        }
+
         const normalizedPath = getNormalizedPath(resource.type, resource.id)
         mkdirSync(dirname(normalizedPath), { recursive: true })
         writeFileSync(normalizedPath, normalizedContent)
         updateManifest.run('normalized', resource.id)
         normalized++
-      } else {
-        updateManifest.run('failed', resource.id)
-        failed++
       }
     } catch {
       updateManifest.run('failed', resource.id)
@@ -101,6 +112,20 @@ function normalizeContent(resource: ManifestRow, rawContent: string | Buffer, db
     default:
       return typeof rawContent === 'string' ? rawContent : rawContent.toString('utf-8')
   }
+}
+
+export function normalizeSampleArchive(
+  resource: ManifestRow,
+  rawContent: Buffer,
+  db: Database.Database
+): boolean {
+  const normalizedContent = normalizeSample(resource, rawContent, db)
+  if (!normalizedContent) return false
+
+  const normalizedPath = getNormalizedPath(resource.type, resource.id)
+  mkdirSync(dirname(normalizedPath), { recursive: true })
+  writeFileSync(normalizedPath, normalizedContent)
+  return true
 }
 
 function normalizeDoc(resource: ManifestRow, rawContent: string): string | null {
@@ -562,6 +587,26 @@ function getRawPath(type: ResourceType, id: string): string {
       return join(paths.data.raw.samples, id)
     default:
       return join(paths.data.raw.dir, id)
+  }
+}
+
+function getExistingRawPath(type: ResourceType, id: string): string {
+  const rawPath = getRawPath(type, id)
+  if (existsSync(rawPath)) return rawPath
+
+  if (type === 'sample') {
+    const legacyRawPath = join(paths.data.raw.samples, id)
+    if (existsSync(legacyRawPath)) return legacyRawPath
+  }
+
+  return rawPath
+}
+
+function deleteRawSampleArchive(rawPath: string): void {
+  try {
+    unlinkSync(rawPath)
+  } catch {
+    // A missing temp archive should not fail a completed normalization.
   }
 }
 
