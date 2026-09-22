@@ -156,9 +156,9 @@ Typical workflow:
 2. `scrapple show <id>` → retrieve full content
 3. Use content to answer accurately
 
-### CLAUDE.md / AGENTS.md
+### AGENTS.md / AGENTS.md
 
-Paste into your project's `CLAUDE.md` or `.claude/AGENTS.md`:
+Paste into your project's `AGENTS.md` or `.claude/AGENTS.md`:
 
 ~~~markdown
 ## Apple Documentation

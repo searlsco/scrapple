@@ -24,3 +24,7 @@
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+## Multi-machine sync
+
+This repository is edited from more than one Mac. Before starting work, fetch and integrate `origin/main` (fast-forward when possible). After finishing, commit everything uncommitted, including changes that are not yours unless another agent is actively working in this checkout, then fetch, integrate `origin/main`, and push. The full rule is in the global agent instructions (`~/icloud-drive/dotfiles/AGENTS.md`).
