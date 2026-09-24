@@ -214,7 +214,7 @@ async function fetchDoc(resource, db) {
         title,
     };
 }
-function extractSampleDownload(data) {
+export function extractSampleDownload(data) {
     if (!data || typeof data !== 'object')
         return undefined;
     const obj = data;
@@ -224,9 +224,10 @@ function extractSampleDownload(data) {
             const action = download.action;
             if (typeof action.identifier === 'string' && action.isActive) {
                 const identifier = action.identifier;
+                // Newer docs give the full asset URL rather than a path relative to the base
                 return {
                     identifier,
-                    url: `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
+                    url: /^https?:\/\//.test(identifier) ? identifier : `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
                 };
             }
         }

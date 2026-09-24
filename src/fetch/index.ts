@@ -309,7 +309,7 @@ async function fetchDoc(resource: ManifestRow, db?: Database.Database): Promise<
   }
 }
 
-function extractSampleDownload(data: unknown): SampleDownloadInfo | undefined {
+export function extractSampleDownload(data: unknown): SampleDownloadInfo | undefined {
   if (!data || typeof data !== 'object') return undefined
   const obj = data as Record<string, unknown>
 
@@ -319,9 +319,10 @@ function extractSampleDownload(data: unknown): SampleDownloadInfo | undefined {
       const action = download.action as Record<string, unknown>
       if (typeof action.identifier === 'string' && action.isActive) {
         const identifier = action.identifier
+        // Newer docs give the full asset URL rather than a path relative to the base
         return {
           identifier,
-          url: `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
+          url: /^https?:\/\//.test(identifier) ? identifier : `${SAMPLE_DOWNLOAD_BASE}${identifier}`,
         }
       }
     }

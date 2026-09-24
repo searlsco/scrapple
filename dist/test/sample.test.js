@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { extname, basename } from 'node:path';
 import AdmZip from 'adm-zip';
+import { extractSampleDownload } from '../fetch/index.js';
 // Source file extensions to extract (mirrored from normalize/index.ts)
 const SOURCE_EXTENSIONS = new Set([
     '.swift',
@@ -18,26 +19,6 @@ const SOURCE_EXTENSIONS = new Set([
     '.storyboard',
     '.xib',
 ]);
-// Extract sample download info from doc JSON (mirrored from fetch/index.ts)
-function extractSampleDownload(data) {
-    if (!data || typeof data !== 'object')
-        return undefined;
-    const obj = data;
-    if (obj.sampleCodeDownload && typeof obj.sampleCodeDownload === 'object') {
-        const download = obj.sampleCodeDownload;
-        if (download.action && typeof download.action === 'object') {
-            const action = download.action;
-            if (typeof action.identifier === 'string' && action.isActive) {
-                const identifier = action.identifier;
-                return {
-                    identifier,
-                    url: `https://docs-assets.developer.apple.com/published/${identifier}`,
-                };
-            }
-        }
-    }
-    return undefined;
-}
 // Check if file should be extracted from ZIP (mirrored from normalize/index.ts)
 function shouldExtractFile(entryName) {
     const ext = extname(entryName).toLowerCase();
@@ -87,6 +68,14 @@ describe('Sample download extraction', () => {
         assert.ok(result);
         assert.strictEqual(result.identifier, '15035f283d6a/FrutaBuildingAFeatureRichAppWithSwiftUI.zip');
         assert.strictEqual(result.url, 'https://docs-assets.developer.apple.com/published/15035f283d6a/FrutaBuildingAFeatureRichAppWithSwiftUI.zip');
+    });
+    it('uses an identifier that is already a full URL as-is', () => {
+        const url = 'https://docs-assets.developer.apple.com/published/4f639eb9e1/BuildingWidgetsUsingWidgetKitAndSwiftUI.zip';
+        const result = extractSampleDownload({
+            sampleCodeDownload: { action: { isActive: true, identifier: url } },
+        });
+        assert.ok(result);
+        assert.strictEqual(result.url, url);
     });
     it('returns undefined when isActive is false', () => {
         const docJson = {

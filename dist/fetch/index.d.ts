@@ -7,5 +7,10 @@ export declare const FETCHABLE_RESOURCE_STATUSES: readonly ["discovered", "faile
 export declare function resourceForFetch(resource: ManifestRow): ManifestRow;
 export declare function shouldLogFetchProgress(processed: number, total: number, now: number, lastLoggedAt: number): boolean;
 export declare function fetchResources(db: Database.Database, global: GlobalOptions): Promise<void>;
+interface SampleDownloadInfo {
+    identifier: string;
+    url: string;
+}
+export declare function extractSampleDownload(data: unknown): SampleDownloadInfo | undefined;
 export {};
 //# sourceMappingURL=index.d.ts.map
