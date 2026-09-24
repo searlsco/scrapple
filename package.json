@@ -47,8 +47,5 @@
     "@huggingface/transformers": {
       "sharp": "file:./stubs/sharp"
     }
-  },
-  "bundleDependencies": [
-    "@huggingface/transformers"
-  ]
+  }
 }

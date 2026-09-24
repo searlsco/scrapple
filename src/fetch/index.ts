@@ -28,6 +28,14 @@ const FETCHABLE_STATUS_PLACEHOLDERS = FETCHABLE_RESOURCE_STATUSES.map(() => '?')
 const FETCH_PROGRESS_ITEM_INTERVAL = 100
 const FETCH_PROGRESS_TIME_INTERVAL_MS = 10_000
 
+// A failed row may have failed after fetch (in normalize or index) while keeping
+// its etag. Sending that etag would get a 304, skip the row, and leave it failed
+// forever, so retries always request the full resource.
+export function resourceForFetch(resource: ManifestRow): ManifestRow {
+  if (resource.status !== 'failed') return resource
+  return { ...resource, etag: null, last_modified: null }
+}
+
 export function shouldLogFetchProgress(
   processed: number,
   total: number,
@@ -139,7 +147,7 @@ export async function fetchResources(db: Database.Database, global: GlobalOption
 
   for (const resource of others) {
     try {
-      const result = await fetchResource(resource, db)
+      const result = await fetchResource(resourceForFetch(resource), db)
 
       if (result === null) {
         skipped++

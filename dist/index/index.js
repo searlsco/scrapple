@@ -29,6 +29,19 @@ export async function indexResources(db, global) {
     const deleteContent = db.prepare(`
     DELETE FROM content WHERE id = ?
   `);
+    // Drop embeddings for the chunks being replaced so re-indexing doesn't orphan them
+    const deleteVectors = db.prepare(`
+    DELETE FROM content_vec WHERE rowid IN (
+      SELECT m.vec_rowid FROM content_vec_map m
+      JOIN content c ON c.rowid = m.content_rowid
+      WHERE c.id = ?
+    )
+  `);
+    const deleteVectorMappings = db.prepare(`
+    DELETE FROM content_vec_map WHERE content_rowid IN (
+      SELECT rowid FROM content WHERE id = ?
+    )
+  `);
     let indexed = 0;
     let failed = 0;
     for (const resource of toIndex) {
@@ -41,6 +54,8 @@ export async function indexResources(db, global) {
             }
             const content = readFileSync(normalizedPath, 'utf-8');
             // Clear existing content for this resource
+            deleteVectors.run(resource.id);
+            deleteVectorMappings.run(resource.id);
             deleteContent.run(resource.id);
             // Chunk and index
             const chunks = chunkContent(content);
