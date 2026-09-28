@@ -1,8 +1,25 @@
 import { chromium, Browser } from 'playwright'
+import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 
 let browser: Browser | null = null
 const CONCURRENCY = 5 // Number of parallel page fetches
 export const WWDC_NAVIGATION_WAIT_UNTIL = 'load'
+
+// Playwright pins an exact browser revision, so upgrading it leaves the cached
+// browser stale. Its installer is a fast no-op when the revision is present, so
+// run it before a sync spends time discovering and fetching everything else.
+// Installer output goes to stderr to keep JSON mode's stdout clean.
+export function ensureBrowserInstalled(): void {
+  const cli = join(dirname(createRequire(import.meta.url).resolve('playwright/package.json')), 'cli.js')
+  const result = spawnSync(process.execPath, [cli, 'install', '--only-shell', 'chromium'], {
+    stdio: ['ignore', 2, 2],
+  })
+  if (result.status !== 0) {
+    throw new Error(`Failed to install Playwright Chromium (exit ${result.status ?? result.signal})`)
+  }
+}
 
 export async function getBrowser(): Promise<Browser> {
   if (!browser) {

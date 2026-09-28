@@ -1,11 +1,18 @@
 import { getDb } from '../db.js';
 import { discover } from '../discover/index.js';
 import { fetchResources } from '../fetch/index.js';
+import { ensureBrowserInstalled } from '../fetch/playwright.js';
 import { normalizeResources } from '../normalize/index.js';
 import { indexResources, embedContent } from '../index/index.js';
 // 12 months in milliseconds
 const REFRESH_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 export async function sync(options, global) {
+    const willFetch = !options.discoverOnly && !options.normalizeOnly && !options.indexOnly;
+    if (willFetch) {
+        if (global.human)
+            console.log('Checking Playwright browser...');
+        ensureBrowserInstalled();
+    }
     const db = getDb();
     // Handle refresh: reset stale or all items back to 'discovered'
     if (options.refreshAll) {
@@ -36,7 +43,7 @@ export async function sync(options, global) {
             console.log('Discovering resources...');
         await discover(db, global);
     }
-    if (!options.discoverOnly && !options.normalizeOnly && !options.indexOnly) {
+    if (willFetch) {
         if (global.human)
             console.log('Fetching resources...');
         await fetchResources(db, global);
